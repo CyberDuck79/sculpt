@@ -178,8 +178,11 @@ function ui.key(n, z)
     shift = z == 1
   elseif z == 1 then
     local st = STAGES[stage]
-    -- K1 maintenu donne la seconde action de la touche, quand elle existe
-    local k = (shift and st.shift_keys or st.keys)[n - 1]
+    -- K1 maintenu donne la seconde action de la touche, et rien quand elle
+    -- n'existe pas : K1 sert aussi à changer d'étage, et une touche pressée
+    -- en chemin ne doit pas déclencher son action ordinaire.
+    local set = shift and (st.shift_keys or {}) or st.keys
+    local k = set[n - 1]
     if k then k.press() end
   end
 end

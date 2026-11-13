@@ -57,8 +57,10 @@ function parameters.add_mosaic()
   params:add_binary("mos_on", "mosaic on", "toggle", 0)
   params:set_action("mos_on", function()
     local on = params:get("mos_on")
-    -- l'engine vide son buffer en s'éteignant : l'écran suit
-    if on == 0 then state.clear_mos_env() end
+    -- l'engine vide son buffer en s'éteignant : l'écran suit. Verrouillé,
+    -- le buffer est gardé des deux côtés.
+    local locked = params.lookup["mos_lock"] and params:get("mos_lock") == 1
+    if on == 0 and locked ~= true then state.clear_mos_env() end
     engine.mos_bypass(1 - on)
   end)
   params:add_binary("mos_lock", "lock", "toggle", 0)

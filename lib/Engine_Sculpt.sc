@@ -23,7 +23,7 @@ Engine_Sculpt : CroneEngine {
 	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var grpVast, vastSynth, vastArgs;
-	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true;
+	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
@@ -109,7 +109,7 @@ Engine_Sculpt : CroneEngine {
 		};
 		// 0 : retard (DELAY FREE), 1 : position fixe
 		this.addCommand(\mos_scan_mode, "i", { |msg| mosaic.set(\scanMode, msg[1]) });
-		this.addCommand(\mos_lock, "i", { |msg| mosaic.set(\lock, msg[1]) });
+		this.addCommand(\mos_lock, "i", { |msg| mosLocked = msg[1] > 0; mosaic.set(\lock, msg[1]) });
 		this.addCommand(\mos_bypass, "i", { |msg| this.setBypass(msg[1] > 0) });
 
 		// RING : les réglages sont gardés ici, puisque le synth n'existe pas
@@ -157,11 +157,16 @@ Engine_Sculpt : CroneEngine {
 	// Le buffer est effacé à la mise en pause : sans ça, il garde ce qu'il
 	// contenait et le rallumage ressort un bout du son d'avant. On préfère
 	// un début silencieux, le temps que la tête d'écriture remplisse.
+	// Sauf si le buffer est verrouillé : il est alors gardé exprès, et
+	// l'effacer laisserait un buffer vide que rien ne vient remplir.
 	setBypass { |on|
 		mosBypassed = on;
 		if(on) {
 			mosaic.set(\bypass, 1);
-			{ 0.1.wait; if(mosBypassed) { mosaic.run(false); mosBufs.do(_.zero) } }.fork;
+			{ 0.1.wait; if(mosBypassed) {
+				mosaic.run(false);
+				if(mosLocked.not) { mosBufs.do(_.zero) };
+			} }.fork;
 		} {
 			mosaic.run(true);
 			mosaic.set(\bypass, 0);
