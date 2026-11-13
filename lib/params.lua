@@ -206,21 +206,6 @@ function parameters.add_deform()
   params:add_control("def_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("def_wet", function(x) engine.def_wet(x) end)
 
-  -- Trois réglages en cours de calage, qui n'ont pas de page à l'écran :
-  -- une fois la valeur choisie à l'oreille, ils deviendront des constantes
-  -- et disparaîtront d'ici. Le S4 n'expose rien de tout ça non plus.
-  params:add_separator("def_cal_sep", "deform : calage")
-  -- 1 = pas de companding ; plus bas, plus les niveaux faibles gardent de
-  -- la résolution (0,5 revient à quantifier la racine du signal)
-  params:add_control("def_law", "law", controlspec.new(0.3, 1, "lin", 0, 0.32), function(p)
-    return string.format("%.2f", p:get())
-  end)
-  params:set_action("def_law", function(x) engine.def_law(x) end)
-  -- l'erreur de quantification, retirée (négatif) ou accentuée (positif)
-  params:add_control("def_grain", "grain", controlspec.new(-0.6, 0.6, "lin", 0, 0), signed)
-  params:set_action("def_grain", function(x) engine.def_grain(x) end)
-  params:add_control("def_grain_tone", "grain tone", controlspec.new(100, 8000, "exp", 0, 2000), hz)
-  params:set_action("def_grain_tone", function(x) engine.def_grainTone(x) end)
 end
 
 return parameters

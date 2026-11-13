@@ -2,6 +2,9 @@
 SculptDefs {
 	// nombre de bandes de RING, comme le S4
 	classvar <ringBands = 48;
+	// Companding du crush de DEFORM : les niveaux sont écrasés avant d'être
+	// quantifiés, puis rétablis. Valeur choisie à l'oreille le 2026-11-13.
+	classvar <crushLaw = 0.32;
 
 	*add {
 		// Lecteur de sample : lit tout le buffer en boucle.
@@ -183,8 +186,7 @@ SculptDefs {
 		//   noiseTone : fréquence du passe-bande posé sur le bruit
 		SynthDef(\sculpt_deform, { |bus, wet = 0.5, bypass = 0, drive = 0, crush = 0,
 			crushMode = 0, comp = 0, tilt = 0, xover = 650, noise = 0, noiseType = 1,
-			noiseDecay = 0.2, noiseTone = 1200, gain = 1,
-			law = 1, grain = 0, grainTone = 2000|
+			noiseDecay = 0.2, noiseTone = 1200, gain = 1|
 			var in = In.ar(bus, 2);
 			var env = Amplitude.ar(in, 0.005, Lag.kr(noiseDecay, 0.05));
 			var nz = [0, 1].collect { |c|
@@ -221,16 +223,11 @@ SculptDefs {
 				var sig = (b * (1 - dv)) + ((((b * d).tanh) / d.tanh) * dv * d.pow(-0.75));
 				// Companding : on écrase les niveaux avant de quantifier et on
 				// les rétablit après, pour que les sons faibles gardent de la
-				// résolution. C'est ce qui fait le grain des vieux samplers :
-				// la distorsion suit le signal au lieu d'être un souffle fixe.
-				var pre = sig.sign * sig.abs.pow(law);
-				var q = Decimator.ar(pre, rateJit, bitsOn);
-				var back = q.sign * q.abs.pow(law.reciprocal);
-				// Le grain : l'erreur de quantification, filtrée et redosée.
-				// En négatif on en retire, ce qui adoucit ; en positif on
-				// l'accentue ; grainTone dit où elle se place dans le spectre.
-				var err = back - sig;
-				sig = back + (BPF.ar(err, grainTone, 2) * grain);
+				// résolution. L'erreur devient alors proportionnelle au signal
+				// au lieu d'être un plancher fixe — le grain des vieux
+				// samplers, qui s'efface avec le son au lieu de rester sous lui.
+				var q = Decimator.ar(sig.sign * sig.abs.pow(crushLaw), rateJit, bitsOn);
+				sig = q.sign * q.abs.pow(crushLaw.reciprocal);
 				Compander.ar(sig, sig, thr, 1, slope, 0.005, 0.12) * makeup;
 			}.sum * gain;
 			var w = Lag.kr(wet, 0.05);

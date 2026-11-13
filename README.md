@@ -122,6 +122,12 @@ smear the whole spectrum when drive is pushed.
 | 3 | **Noise**: how much, with `white`, `pink` or `dust` under **K1 held + E2** | **Decay**: how fast the follower falls back |
 | 4 | **Tone**: where the noise sits in the spectrum | **Wet**: dry / effect balance |
 
+Inside the crush, levels are companded: squeezed before being quantised and
+restored after, so that quiet sounds keep their resolution. The quantisation
+error then fades with the signal instead of sitting under it as a fixed floor,
+which is what gives old samplers their grain. It is not a setting, any more than
+it is on the S4.
+
 The screen draws the transfer curve: what each input level becomes. The clipping of
 the drive, the stair steps of the crush and the knee of the compressor all read off
 it, and the noise blurs it. Sample-rate reduction does not show there, since it

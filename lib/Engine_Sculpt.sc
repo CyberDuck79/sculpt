@@ -65,9 +65,7 @@ Engine_Sculpt : CroneEngine {
 		defArgs = IdentityDictionary[
 			\drive -> 0, \crush -> 0, \crushMode -> 0, \comp -> 0, \tilt -> 0,
 			\xover -> 650, \noise -> 0, \noiseType -> 1, \noiseDecay -> 0.2,
-			\noiseTone -> 1200,
-			// en cours de calage à l'oreille, voués à devenir des constantes
-			\law -> 0.32, \grain -> 0, \grainTone -> 2000
+			\noiseTone -> 1200
 		];
 		ringArgs = IdentityDictionary[
 			\cutoff -> 16000, \reso -> 0, \decay -> 0, \pitch -> 0,
@@ -123,8 +121,7 @@ Engine_Sculpt : CroneEngine {
 
 		// DEFORM : mêmes règles que RING
 		[\drive, \crush, \crushMode, \comp, \tilt, \xover,
-			\noise, \noiseType, \noiseDecay, \noiseTone,
-			\law, \grain, \grainTone].do { |key|
+			\noise, \noiseType, \noiseDecay, \noiseTone].do { |key|
 			this.addCommand(("def_" ++ key).asSymbol, "f", { |msg|
 				defArgs[key] = msg[1];
 				defSynth !? { defSynth.set(key, msg[1]) };

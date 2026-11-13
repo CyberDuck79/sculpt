@@ -310,6 +310,9 @@ end
 -- lit l'écrêtage du drive, l'escalier du crush et le coude du compresseur.
 -- La réduction d'échantillonnage, elle, ne s'y voit pas : elle est dans le
 -- temps, pas dans les niveaux.
+-- le companding du crush, même valeur que dans l'engine
+local DEF_CRUSH_LAW = 0.32
+
 local function tanh(x)
   local e = math.exp(2 * x)
   return (e - 1) / (e + 1)
@@ -323,7 +326,7 @@ draw_deform = function()
   local dv = params:get("def_drive")
   local d = 50 ^ dv
   local step = 2 ^ (1 - (12 - (crush * 8)))
-  local law = params:get("def_law")
+  local law = DEF_CRUSH_LAW
   local thr = 1 - (comp * 0.95)
   local slope = 1 - (comp * 0.8)
   local makeup = math.min(thr ^ ((slope - 1) * 0.5), 1.6)
