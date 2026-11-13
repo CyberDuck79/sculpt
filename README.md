@@ -10,6 +10,8 @@ A sculpting sampler for [norns](https://monome.org/docs/norns/): a sound source 
 source ─► MOSAIC ─► RING ─► DEFORM ─► VAST ─► output
 ```
 
+The output goes through a limiter, so a hot sample or a dense effect cannot clip. It leaves anything below full scale untouched and adds 5 ms of latency.
+
 | Stage | What it does | State |
 |---|---|---|
 | source | sample player, later a looper | sample player done |

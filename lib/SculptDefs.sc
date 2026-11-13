@@ -94,8 +94,12 @@ SculptDefs {
 		}).add;
 
 		// Sortie : copie le bus de la chaîne vers la sortie du norns.
+		// sortie : un limiteur retient ce qui dépasserait la pleine échelle
+		// (sample fort, level au-dessus de 100 %, effet ajouté au direct).
+		// Sous le seuil il ne touche à rien. Il anticipe de 5 ms : c'est le
+		// retard qu'il ajoute à toute la chaîne.
 		SynthDef(\sculpt_out, { |in, out|
-			Out.ar(out, In.ar(in, 2));
+			Out.ar(out, Limiter.ar(In.ar(in, 2), 0.99, 0.005));
 		}).add;
 	}
 }
