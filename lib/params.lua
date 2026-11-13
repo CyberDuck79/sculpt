@@ -34,6 +34,7 @@ function parameters.add(s)
   params:set_action("level", function(x) engine.level(x) end)
 
   parameters.add_mosaic()
+  parameters.add_ring()
 end
 
 -- durée lisible : millisecondes, puis secondes
@@ -101,6 +102,52 @@ function parameters.add_mosaic()
   params:set_action("mos_feedback", function(x) engine.mos_feedback(x) end)
   params:add_control("mos_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("mos_wet", function(x) engine.mos_wet(x) end)
+end
+
+-- pourcentage signé, comme contour : les mots ne tiennent pas à côté du nom
+local function signed(p)
+  local v = util.round(p:get() * 100)
+  return (v > 0 and "+" or "") .. v .. "%"
+end
+
+-- RING : un banc de 48 filtres résonnants
+function parameters.add_ring()
+  params:add_separator("ring_sep", "ring")
+
+  params:add_binary("ring_on", "ring on", "toggle", 0)
+  params:set_action("ring_on", function() engine.ring_bypass(1 - params:get("ring_on")) end)
+
+  params:add_control("ring_cutoff", "cutoff", controlspec.new(40, 16000, "exp", 0, 16000), function(p)
+    local f = p:get()
+    if f < 1000 then return util.round(f) .. " hz" end
+    return string.format("%.1fk", f / 1000)
+  end)
+  params:set_action("ring_cutoff", function(x) engine.ring_cutoff(x) end)
+  -- bosse du profil autour de la coupure
+  params:add_control("ring_reso", "resonance", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("ring_reso", function(x) engine.ring_reso(x) end)
+
+  -- combien de temps chaque bande continue de sonner
+  params:add_control("ring_decay", "decay", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("ring_decay", function(x) engine.ring_decay(x) end)
+  -- incline cette durée : vers le haut les aigus sonnent plus longtemps
+  params:add_control("ring_tilt", "tilt", controlspec.new(-1, 1, "lin", 0, 0), signed)
+  params:set_action("ring_tilt", function(x) engine.ring_tilt(x) end)
+
+  -- -100 % passe-bas, 0 passe-bande, +100 % passe-haut
+  params:add_control("ring_slope", "slope", controlspec.new(-1, 1, "lin", 0, -1), signed)
+  params:set_action("ring_slope", function(x) engine.ring_slope(x) end)
+  -- pente générale : vers le haut, plus d'aigus
+  params:add_control("ring_tone", "tone", controlspec.new(-1, 1, "lin", 0, 0), signed)
+  params:set_action("ring_tone", function(x) engine.ring_tone(x) end)
+
+  params:add_number("ring_pitch", "pitch", -24, 24, 0, function(p)
+    local v = p:get()
+    return (v > 0 and "+" or "") .. v .. " st"
+  end)
+  params:set_action("ring_pitch", function(x) engine.ring_pitch(x) end)
+  params:add_control("ring_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
+  params:set_action("ring_wet", function(x) engine.ring_wet(x) end)
 end
 
 return parameters

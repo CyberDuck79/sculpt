@@ -17,7 +17,7 @@ local shift = false
 -- le sélecteur de fichiers de norns est ouvert
 local selecting = false
 
-local draw_source, draw_mosaic
+local draw_source, draw_mosaic, draw_ring
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
@@ -69,6 +69,24 @@ local STAGES = {
       },
     },
     draw = function() draw_mosaic() end,
+  },
+  {
+    name = "ring",
+    short = "RNG",
+    on = "ring_on",
+    pages = {
+      { "ring_cutoff", "ring_reso" },
+      { "ring_decay", "ring_tilt" },
+      { "ring_slope", "ring_tone" },
+      { "ring_pitch", "ring_wet" },
+    },
+    keys = {
+      {
+        label = function() return "ON", params:get("ring_on") == 1 end,
+        press = function() params:delta("ring_on", 1) end,
+      },
+    },
+    draw = function() draw_ring() end,
   },
   {
     name = "settings",
@@ -268,6 +286,53 @@ local function env_height(v)
   local db = 20 * math.log(v, 10)
   if db <= MOS_FLOOR_DB then return 0 end
   return math.max(1, util.round((VIZ_HALF - 2) * (1 - (db / MOS_FLOOR_DB))))
+end
+
+-- RING : la réponse du banc, une barre par bande. La formule est celle de
+-- l'engine ; les refaire ici coûte moins que de les faire voyager.
+local RING_BANDS, RING_SPAN = 48, 8.64
+
+draw_ring = function()
+  local on = params:get("ring_on") == 1
+  local cutoff = params:get("ring_cutoff")
+  local slope, tone = params:get("ring_slope"), params:get("ring_tone")
+  local reso, decay, tilt = params:get("ring_reso"), params:get("ring_decay"), params:get("ring_tilt")
+  local ratio = 2 ^ (params:get("ring_pitch") / 12)
+  local hi, lo = (1 - slope) * 12, (1 + slope) * 12
+  local ring = decay * decay * 4
+  local bottom = VIZ_MID + VIZ_HALF
+
+  for i = 0, RING_BANDS - 1 do
+    local f = 40 * 2 ^ (i * RING_SPAN / (RING_BANDS - 1)) * ratio
+    local x = math.log(f / cutoff, 2)
+    local db = (-math.max(x, 0) * hi) + (math.min(x, 0) * lo)
+      + (x * tone * 6) + (reso * 18 * math.exp(x * x * -5.5))
+    -- de -48 dB en bas à +18 dB en haut
+    local h = util.round((2 * VIZ_HALF) * util.clamp((db + 48) / 66, 0, 1))
+    -- une bande qui sonne longtemps est plus claire
+    local r = (ring * 2 ^ (x * tilt * 0.5)) + 0.0015
+    local lit = util.clamp(math.log(r / 0.0015, 10) / 3, 0, 1)
+    screen.level(on and util.round(3 + 11 * lit) or 1)
+    if h > 0 then
+      screen.rect(util.round(i * 127 / (RING_BANDS - 1)), bottom - h, 2, h)
+      screen.fill()
+    end
+  end
+
+  -- où se place la coupure sur cet axe
+  local cx = math.log(cutoff / 40, 2) / RING_SPAN * 127
+  if cx >= 0 and cx <= 127 then
+    screen.level(on and 15 or 3)
+    screen.rect(util.round(cx), VIZ_TOP, 1, 3)
+    screen.fill()
+  end
+
+  if not on then
+    screen.level(0)
+    screen.rect(52, VIZ_MID - 5, 24, 9)
+    screen.fill()
+    centered("off", 5)
+  end
 end
 
 draw_mosaic = function()

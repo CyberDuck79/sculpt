@@ -20,6 +20,7 @@ Engine_Sculpt : CroneEngine {
 	classvar <contourSteps = 9;
 
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
+	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
 	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
@@ -54,10 +55,19 @@ Engine_Sculpt : CroneEngine {
 		grpSrc = Group.new(context.xg, \addToHead);
 		grpFx = Group.after(grpSrc);
 		grpOut = Group.after(grpFx);
+		// un groupe par étage : l'ordre de la chaîne tient même quand un
+		// effet est défait et refait
+		grpMos = Group.tail(grpFx);
+		grpRing = Group.tail(grpFx);
+		ringCtl = Bus.control(s, SculptDefs.ringBands * 3);
+		ringArgs = IdentityDictionary[
+			\cutoff -> 16000, \reso -> 0, \decay -> 0, \pitch -> 0,
+			\slope -> -1, \tone -> 0, \tilt -> 0
+		];
 		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf], grpSrc);
 		// les effets démarrent en bypass, donc en pause
 		mosaic = Synth.newPaused(\sculpt_mosaic, [\bus, srcBus, \bufL, mosBufs[0], \bufR, mosBufs[1],
-			\envBase, envBufs[0].bufnum, \envSteps, contourSteps, \bypass, 1], grpFx);
+			\envBase, envBufs[0].bufnum, \envSteps, contourSteps, \bypass, 1], grpMos);
 		outSynth = Synth(\sculpt_out, [\in, srcBus, \out, context.out_b.index], grpOut);
 
 		// La tête d'écriture de MOSAIC (0..1) et le niveau écrit, relayés à
@@ -87,6 +97,20 @@ Engine_Sculpt : CroneEngine {
 		this.addCommand(\mos_scan_mode, "i", { |msg| mosaic.set(\scanMode, msg[1]) });
 		this.addCommand(\mos_lock, "i", { |msg| mosaic.set(\lock, msg[1]) });
 		this.addCommand(\mos_bypass, "i", { |msg| this.setBypass(msg[1] > 0) });
+
+		// RING : les réglages sont gardés ici, puisque le synth n'existe pas
+		// tant que l'effet est éteint
+		[\cutoff, \reso, \decay, \pitch, \slope, \tone, \tilt].do { |key|
+			this.addCommand(("ring_" ++ key).asSymbol, "f", { |msg|
+				ringArgs[key] = msg[1];
+				ringShape !? { ringShape.set(key, msg[1]) };
+			});
+		};
+		this.addCommand(\ring_wet, "f", { |msg|
+			ringWet = msg[1];
+			ringSynth !? { ringSynth.set(\wet, msg[1]) };
+		});
+		this.addCommand(\ring_bypass, "i", { |msg| this.setRing(msg[1] == 0) });
 	}
 
 	// Bypass de MOSAIC : le synth fait un fondu vers le signal direct, puis il
@@ -102,6 +126,29 @@ Engine_Sculpt : CroneEngine {
 		} {
 			mosaic.run(true);
 			mosaic.set(\bypass, 0);
+		};
+	}
+
+	// RING s'allume et s'éteint en se défaisant : un filtre résonnant garde
+	// de l'énergie, et un synth seulement mis en pause la relâcherait au
+	// rallumage. Éteint, il ne coûte donc rien non plus.
+	setRing { |on|
+		if(on) {
+			if(ringSynth.isNil) {
+				ringShape = Synth(\sculpt_ring_shape,
+					[\out, ringCtl.index] ++ ringArgs.getPairs, grpRing);
+				ringSynth = Synth(\sculpt_ring,
+					[\bus, srcBus, \ctl, ringCtl.index, \wet, ringWet, \bypass, 1],
+					ringShape, \addAfter);
+				ringSynth.set(\bypass, 0);
+			};
+		} {
+			if(ringSynth.notNil) {
+				var syn = ringSynth, shp = ringShape;
+				ringSynth = nil; ringShape = nil;
+				syn.set(\bypass, 1);
+				{ 0.12.wait; syn.free; shp.free; }.fork;
+			};
 		};
 	}
 
@@ -183,7 +230,9 @@ Engine_Sculpt : CroneEngine {
 	free {
 		posFunc.free;
 		mosFunc.free;
-		[player, mosaic, outSynth, grpSrc, grpFx, grpOut].do(_.free);
+		[player, mosaic, ringShape, ringSynth, outSynth,
+			grpSrc, grpMos, grpRing, grpFx, grpOut].do { |x| x !? { x.free } };
+		ringCtl.free;
 		[srcBus, buf].do(_.free);
 		mosBufs.do(_.free);
 		envBufs.do(_.free);

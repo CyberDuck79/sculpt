@@ -1,5 +1,8 @@
 // SculptDefs : les SynthDefs de sculpt, sans état.
 SculptDefs {
+	// nombre de bandes de RING, comme le S4
+	classvar <ringBands = 48;
+
 	*add {
 		// Lecteur de sample : lit tout le buffer en boucle.
 		//   play  : 1 lecture (fondu de 1 ms, pour garder l'attaque du sample),
@@ -120,6 +123,65 @@ SculptDefs {
 		// (sample fort, level au-dessus de 100 %, effet ajouté au direct).
 		// Sous le seuil il ne touche à rien. Il anticipe de 5 ms : c'est le
 		// retard qu'il ajoute à toute la chaîne.
+		// RING : un banc de 48 filtres résonnants.
+		//
+		// Le travail est coupé en deux synths. Celui-ci calcule les 48
+		// triplets — fréquence, niveau, durée de résonance — et les dépose sur
+		// un bus de contrôle ; le suivant fait le filtrage. Un seul graphe qui
+		// ferait les deux dépasse ce que le serveur de norns accepte
+		// (« exceeded number of interconnect buffers »), et deux graphes
+		// moyens coûtent le même prix que le gros.
+		//
+		// Les bandes sont réparties à intervalle égal en octaves, de 40 Hz à
+		// 16 kHz : 2,2 demi-tons de l'une à l'autre. À résonance courte elles
+		// se recouvrent et rendent le signal tel quel ; en l'allongeant, elles
+		// sonnent chacune à sa hauteur.
+		//   cutoff : la fréquence où le profil bascule
+		//   slope  : -1 passe-bas .. 0 passe-bande .. +1 passe-haut
+		//   reso   : bosse du profil autour de cutoff
+		//   decay  : durée de résonance des bandes (sa course est au carré)
+		//   tilt   : incline cette durée entre graves et aigus
+		//   tone   : pente générale du profil, graves contre aigus
+		//   pitch  : transpose tout le banc, en demi-tons
+		SynthDef(\sculpt_ring_shape, { |out, cutoff = 16000, reso = 0, decay = 0,
+			pitch = 0, slope = -1, tone = 0, tilt = 0|
+			var nb = ringBands;
+			var base = Array.fill(nb, { |i| 40 * (2 ** (i * 8.64 / (nb - 1))) });
+			var ratio = pitch.midiratio;
+			// position de chaque bande par rapport à cutoff, en octaves
+			var xs = base.collect { |f| f.log2 + (ratio / cutoff).log2 };
+			var hiCut = (1 - slope) * 12;
+			var loCut = (1 + slope) * 12;
+			var ring = decay.squared * 4;
+			var rings = xs.collect { |x| (ring * 2.pow(x * tilt * 0.5)) + 0.0015 };
+			// Une bande qui sonne longtemps est aussi plus étroite : elle
+			// reçoit moins et rend plus. Mesuré au bruit rose, le niveau monte
+			// comme la durée de résonance à la puissance 0,34 ; on le reprend
+			// ici, sinon monter DECAY ferait surtout monter le volume.
+			var amps = xs.collect { |x, i|
+				((x.max(0).neg * hiCut) + (x.min(0) * loCut) + (x * tone * 6)
+					+ (reso * 18 * (x.squared * -5.5).exp)).dbamp
+				* (0.0015 / rings[i]).pow(0.34);
+			};
+			Out.kr(out, base.collect { |f| f * ratio } ++ amps ++ rings);
+		}).add;
+
+		// Le filtrage lui-même : chaque côté traverse le banc.
+		// Le gain remet le banc au niveau de l'entrée : mesuré au bruit rose,
+		// 48 bandes larges qui se recouvrent sortaient 6 fois trop fort.
+		SynthDef(\sculpt_ring, { |bus, ctl, wet = 0.5, bypass = 0, gain = 0.0133|
+			var nb = ringBands;
+			var in = In.ar(bus, 2);
+			var p = In.kr(ctl, nb * 3);
+			var out = [0, 1].collect { |c|
+				DynKlank.ar(`[p[0..(nb - 1)], p[nb..((2 * nb) - 1)], p[(2 * nb)..]], in[c]);
+			} * gain;
+			var w = Lag.kr(wet, 0.05);
+			var mix = Lag.kr(1 - bypass, 0.02);
+			var o = (in * (1 - w)) + (out * w);
+			ReplaceOut.ar(bus, (in * (1 - mix)) + (o * mix));
+		}).add;
+
 		SynthDef(\sculpt_out, { |in, out|
 			Out.ar(out, Limiter.ar(In.ar(in, 2), 0.99, 0.005));
 		}).add;

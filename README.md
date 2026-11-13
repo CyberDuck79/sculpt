@@ -16,7 +16,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 |---|---|---|
 | source | sample player, later a looper | sample player done |
 | MOSAIC | granular | first 8 settings done |
-| RING | bank of resonant filters | to do |
+| RING | bank of resonant filters | first 8 settings done |
 | DEFORM | drive, crush, compression, noise | to do |
 | VAST | delay and reverb | to do |
 
@@ -78,6 +78,31 @@ MOSAIC records the last 4 seconds of what it receives, and plays short grains fr
 - `position`: the grains read at a fixed point of the buffer. This is most useful with the buffer locked.
 
 On the screen, the line is the 4-second buffer and the bright bar is where the input is being written. The grey zone is where grains are born, and the short bars are grains. They are drawn from the settings, not read back from the engine.
+
+## RING
+
+RING is a bank of 48 resonant filters. Each band has its own frequency, level and
+ringing time, and every setting shapes those three things. Short ringing times make
+the bands overlap into a plain filter; longer ones make each band sing at its own
+pitch.
+
+| Control | Action |
+|---|---|
+| K2 | stage on / off |
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Cutoff**: where the response turns | **Resonance**: a peak at the cutoff |
+| 2 | **Decay**: how long each band keeps ringing | **Tilt**: leans that ringing towards the low or the high bands |
+| 3 | **Slope**: -100% low-pass, 0% band-pass, +100% high-pass | **Tone**: overall lean of the response, lows against highs |
+| 4 | **Pitch**: shifts the whole bank, in semitones | **Wet**: dry / effect balance |
+
+On the screen, each bar is a band: its height is the level that band passes, and the
+brighter it is, the longer it rings. The tick along the top marks the cutoff.
+
+RING is taken apart when it is switched off, rather than just paused: a resonant
+filter holds energy, and a paused one would let it out on the way back. Switched
+off, it costs nothing at all.
 
 ## The screen
 
