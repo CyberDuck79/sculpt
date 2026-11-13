@@ -68,7 +68,7 @@ MOSAIC records the last 4 seconds of what it receives, and plays short grains fr
 | Page | E2 | E3 |
 |---|---|---|
 | 1 | **Pitch** of the grains, in semitones | **Rate**: grains per second |
-| 2 | **Size**: length of a grain | **Contour**: shape of a grain, from a sharp attack that fades (`decay`), to a bell, to a rise (`swell`) |
+| 2 | **Size**: length of a grain | **Contour**: shape of a grain, from a sharp attack that fades (-100%), through a bell (0%), to a rise (+100%) |
 | 3 | **Scan**: where the grains read | **Spray**: scatters that position at random, up to the whole buffer, and widens the stereo |
 | 4 | **Feedback**: sends the grains back into the buffer | **Wet**: dry / effect balance |
 

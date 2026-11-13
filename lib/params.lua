@@ -75,11 +75,12 @@ function parameters.add_mosaic()
     return seconds(p:get())
   end)
   params:set_action("mos_size", function(x) engine.mos_size(x) end)
-  -- forme du grain : attaque franche qui s'éteint, cloche, ou montée
+  -- Forme du grain : au centre une cloche, vers le bas une attaque franche
+  -- qui s'éteint, vers le haut une montée. Affiché en pourcentage signé,
+  -- comme sur le S4 : les mots ne tiennent pas à côté du nom du réglage.
   params:add_control("mos_contour", "contour", controlspec.new(-1, 1, "lin", 0, 0), function(p)
     local v = util.round(p:get() * 100)
-    if v == 0 then return "bell" end
-    return (v < 0 and "decay " or "swell ") .. math.abs(v) .. "%"
+    return (v > 0 and "+" or "") .. v .. "%"
   end)
   params:set_action("mos_contour", function(x) engine.mos_contour(x) end)
 
