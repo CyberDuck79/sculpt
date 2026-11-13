@@ -17,6 +17,8 @@ Engine_Sculpt : CroneEngine {
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
 	var loadId = 0;
+	// ce que Lua a demandé (lecture ou arrêt), et un échange de buffer en cours
+	var playing = false, swapping = false;
 
 	*new { arg context, doneCallback;
 		^super.new(context, doneCallback);
@@ -46,7 +48,11 @@ Engine_Sculpt : CroneEngine {
 		this.addCommand(\file, "s", { |msg| this.loadFile(msg[1].asString) });
 		// 1 : lecture depuis le début ; 0 : arrêt
 		this.addCommand(\play, "i", { |msg|
-			if(msg[1] > 0) { player.set(\t_reset, 1, \play, 1) } { player.set(\play, 0) };
+			playing = msg[1] > 0;
+			// pendant un échange de buffer, la lecture repartira à sa fin
+			if(swapping.not) {
+				if(playing) { player.set(\t_reset, 1, \play, 1) } { player.set(\play, 0) };
+			};
 		});
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
 	}
@@ -87,11 +93,23 @@ Engine_Sculpt : CroneEngine {
 		Buffer.readChannel(s, path, 0, frames, channels, action: { |b|
 			if(id == loadId) {
 				var old = buf;
+				// Changer de buffer en pleine lecture ferait un clic : on coupe
+				// d'abord le son (fondu de 10 ms dans le synth), on échange,
+				// puis la lecture repart du début du nouveau sample.
+				// (buf change tout de suite côté sclang : si un autre chargement
+				// arrive pendant le fondu, chacun libère bien son ancien buffer)
 				buf = b;
-				player.set(\buf, buf, \t_reset, 1);
-				lua.sendMsg("/sculpt/loaded", seconds, *peaks);
-				// l'ancien buffer peut encore être lu pendant ce bloc
-				{ old.free }.defer(0.2);
+				swapping = true;
+				player.set(\play, 0);
+				{
+					0.04.wait;
+					player.set(\buf, b, \t_reset, 1);
+					swapping = false;
+					if(playing) { player.set(\play, 1) };
+					lua.sendMsg("/sculpt/loaded", seconds, *peaks);
+					0.2.wait;
+					old.free;
+				}.fork;
 			} {
 				b.free;
 			};

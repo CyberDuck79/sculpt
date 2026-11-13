@@ -2,7 +2,8 @@
 SculptDefs {
 	*add {
 		// Lecteur de sample : lit tout le buffer en boucle.
-		//   play  : 1 lecture, 0 arrêt (fondu de 10 ms) ; t_reset repart du début
+		//   play  : 1 lecture (fondu de 1 ms, pour garder l'attaque du sample),
+		//           0 arrêt (fondu de 10 ms) ; t_reset repart du début
 		//   speed : vitesse (1 = normale), corrigée du taux du fichier
 		// Un fondu de 5 ms à chaque bout évite le clic au raccord de boucle.
 		// La position (0..1) part vers sclang 30 fois par seconde.
@@ -13,7 +14,7 @@ SculptDefs {
 			var phase = Phasor.ar(T2A.ar(t_reset), rate, 0, frames, 0);
 			var sig = BufRd.ar(2, buf, phase, 1, 4);
 			var edge = (min(phase, frames - phase) / (0.005 * SampleRate.ir)).clip(0, 1);
-			var amp = Lag.kr(gate, 0.01) * Lag.kr(level, 0.05);
+			var amp = LagUD.kr(gate, 0.001, 0.01) * Lag.kr(level, 0.05);
 			SendReply.kr(Impulse.kr(30), '/sculpt/pos', A2K.kr(phase) / frames);
 			Out.ar(out, sig * edge * amp);
 		}).add;
