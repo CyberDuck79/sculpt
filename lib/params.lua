@@ -212,7 +212,7 @@ function parameters.add_deform()
   params:add_separator("def_cal_sep", "deform : calage")
   -- 1 = pas de companding ; plus bas, plus les niveaux faibles gardent de
   -- la résolution (0,5 revient à quantifier la racine du signal)
-  params:add_control("def_law", "law", controlspec.new(0.3, 1, "lin", 0, 1), function(p)
+  params:add_control("def_law", "law", controlspec.new(0.3, 1, "lin", 0, 0.32), function(p)
     return string.format("%.2f", p:get())
   end)
   params:set_action("def_law", function(x) engine.def_law(x) end)

@@ -67,7 +67,7 @@ Engine_Sculpt : CroneEngine {
 			\xover -> 650, \noise -> 0, \noiseType -> 1, \noiseDecay -> 0.2,
 			\noiseTone -> 1200,
 			// en cours de calage à l'oreille, voués à devenir des constantes
-			\law -> 1, \grain -> 0, \grainTone -> 2000
+			\law -> 0.32, \grain -> 0, \grainTone -> 2000
 		];
 		ringArgs = IdentityDictionary[
 			\cutoff -> 16000, \reso -> 0, \decay -> 0, \pitch -> 0,
