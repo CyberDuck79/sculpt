@@ -21,6 +21,7 @@ Engine_Sculpt : CroneEngine {
 
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
 	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
+	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
@@ -60,6 +61,12 @@ Engine_Sculpt : CroneEngine {
 		grpMos = Group.tail(grpFx);
 		grpRing = Group.tail(grpFx);
 		ringCtl = Bus.control(s, SculptDefs.ringBands * 3);
+		grpDef = Group.tail(grpFx);
+		defArgs = IdentityDictionary[
+			\drive -> 0, \crush -> 0, \crushMode -> 0, \comp -> 0, \tilt -> 0,
+			\xover -> 650, \noise -> 0, \noiseType -> 1, \noiseDecay -> 0.2,
+			\noiseTone -> 1200
+		];
 		ringArgs = IdentityDictionary[
 			\cutoff -> 16000, \reso -> 0, \decay -> 0, \pitch -> 0,
 			\slope -> -1, \tone -> 0, \tilt -> 0
@@ -111,6 +118,20 @@ Engine_Sculpt : CroneEngine {
 			ringSynth !? { ringSynth.set(\wet, msg[1]) };
 		});
 		this.addCommand(\ring_bypass, "i", { |msg| this.setRing(msg[1] == 0) });
+
+		// DEFORM : mêmes règles que RING
+		[\drive, \crush, \crushMode, \comp, \tilt, \xover,
+			\noise, \noiseType, \noiseDecay, \noiseTone].do { |key|
+			this.addCommand(("def_" ++ key).asSymbol, "f", { |msg|
+				defArgs[key] = msg[1];
+				defSynth !? { defSynth.set(key, msg[1]) };
+			});
+		};
+		this.addCommand(\def_wet, "f", { |msg|
+			defWet = msg[1];
+			defSynth !? { defSynth.set(\wet, msg[1]) };
+		});
+		this.addCommand(\def_bypass, "i", { |msg| this.setDeform(msg[1] == 0) });
 	}
 
 	// Bypass de MOSAIC : le synth fait un fondu vers le signal direct, puis il
@@ -148,6 +169,24 @@ Engine_Sculpt : CroneEngine {
 				ringSynth = nil; ringShape = nil;
 				syn.set(\bypass, 1);
 				{ 0.12.wait; syn.free; shp.free; }.fork;
+			};
+		};
+	}
+
+	// DEFORM s'allume et s'éteint comme RING, en se faisant et se défaisant.
+	setDeform { |on|
+		if(on) {
+			if(defSynth.isNil) {
+				defSynth = Synth(\sculpt_deform,
+					[\bus, srcBus, \wet, defWet, \bypass, 1] ++ defArgs.getPairs, grpDef);
+				defSynth.set(\bypass, 0);
+			};
+		} {
+			if(defSynth.notNil) {
+				var syn = defSynth;
+				defSynth = nil;
+				syn.set(\bypass, 1);
+				{ 0.12.wait; syn.free; }.fork;
 			};
 		};
 	}
@@ -230,8 +269,8 @@ Engine_Sculpt : CroneEngine {
 	free {
 		posFunc.free;
 		mosFunc.free;
-		[player, mosaic, ringShape, ringSynth, outSynth,
-			grpSrc, grpMos, grpRing, grpFx, grpOut].do { |x| x !? { x.free } };
+		[player, mosaic, ringShape, ringSynth, defSynth, outSynth,
+			grpSrc, grpMos, grpRing, grpDef, grpFx, grpOut].do { |x| x !? { x.free } };
 		ringCtl.free;
 		[srcBus, buf].do(_.free);
 		mosBufs.do(_.free);

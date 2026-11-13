@@ -167,6 +167,66 @@ SculptDefs {
 		}).add;
 
 		// Le filtrage lui-même : chaque côté traverse le banc.
+		// DEFORM : distorsion en deux bandes, avec un bruit qui suit le signal.
+		//
+		// L'ordre interne est celui du S4 : NOISE, DRIVE, CRUSH, COMPRESS. Le
+		// bruit s'ajoute avant le partage en deux bandes, puisqu'il suit le
+		// signal entier ; le reste travaille sur chaque bande à part, ce qui
+		// évite que les graves saturent tout le spectre.
+		//   drive     : 0..1, de 1 à 50 fois avant l'écrêtage doux
+		//   crush     : 0..1, selon crushMode 0 bits, 1 échantillonnage, 2 les deux
+		//   comp      : 0..1, un seul bouton pour le seuil et le taux
+		//   tilt      : -1..1, quelle bande part la première dans la saturation
+		//   xover     : la fréquence qui sépare les deux bandes
+		//   noise     : 0..1 ; noiseType 0 blanc, 1 rose, 2 dust
+		//   noiseDecay: temps de descente du suiveur, en secondes
+		//   noiseTone : fréquence du passe-bande posé sur le bruit
+		SynthDef(\sculpt_deform, { |bus, wet = 0.5, bypass = 0, drive = 0, crush = 0,
+			crushMode = 0, comp = 0, tilt = 0, xover = 650, noise = 0, noiseType = 1,
+			noiseDecay = 0.2, noiseTone = 1200, gain = 1|
+			var in = In.ar(bus, 2);
+			var env = Amplitude.ar(in, 0.005, Lag.kr(noiseDecay, 0.05));
+			var nz = [0, 1].collect { |c|
+				BPF.ar(Select.ar(noiseType,
+					[WhiteNoise.ar(1), PinkNoise.ar(1), Dust2.ar(3000)]), noiseTone, 1.5);
+			};
+			var noisy = in + (nz * env * Lag.kr(noise, 0.05) * 6);
+			// L'écrêtage est ramené à l'échelle (il passe par 1 quel que soit le
+			// gain d'attaque), puis mélangé au signal propre selon DRIVE :
+			// à 0, l'étage laisse passer exactement ce qu'il reçoit.
+			var dv = Lag.kr(drive, 0.05);
+			var d = dv.linexp(0, 1, 1, 50);
+			// Le pas d'arrondi vient d'un nombre de bits, de 12 à 4 : une échelle
+			// en bits répartit l'effet sur toute la course, là où une échelle
+			// en pas d'arrondi n'aurait rien donné avant la toute fin.
+			// Échantillonner à 20 kHz, lui, laisse le signal à peu près intact.
+			var step = 2 ** (1 - (12 - (Lag.kr(crush, 0.05) * 8)));
+			var rate = Lag.kr(crush, 0.05).linexp(0, 1, 20000, 700);
+			var stepOn = Select.kr(crushMode, [step, 0.0000001, step]);
+			var rateOn = Select.kr(crushMode, [20000, rate, rate]);
+			// jitter : l'horloge d'échantillonnage n'est pas tout à fait stable
+			var trig = Impulse.ar(rateOn * (1 + (LFNoise1.kr(30) * 0.03)));
+			var c = Lag.kr(comp, 0.05);
+			var thr = 1 - (c * 0.95);
+			var slope = 1 - (c * 0.8);
+			// le rattrapage de niveau du compresseur, borné : sinon un seuil
+			// très bas remonte tout le signal, y compris ce qu'il n'a pas touché
+			var makeup = min(thr.pow((slope - 1) * 0.5), 1.6);
+			var low = LPF.ar(noisy, Lag.kr(xover, 0.05));
+			var bands = [low * (tilt * -6).dbamp, (noisy - low) * (tilt * 6).dbamp];
+			var out = bands.collect { |b|
+				// l'écrêtage remonte beaucoup les niveaux faibles : mesuré au
+				// bruit rose, son gain suit le gain d'attaque à la puissance 0,75
+				var sig = (b * (1 - dv)) + ((((b * d).tanh) / d.tanh) * dv * d.pow(-0.75));
+				sig = Latch.ar(sig.round(stepOn), trig);
+				Compander.ar(sig, sig, thr, 1, slope, 0.005, 0.12) * makeup;
+			}.sum * gain;
+			var w = Lag.kr(wet, 0.05);
+			var mix = Lag.kr(1 - bypass, 0.02);
+			var o = (in * (1 - w)) + (out * w);
+			ReplaceOut.ar(bus, (in * (1 - mix)) + (o * mix));
+		}).add;
+
 		// Le gain remet le banc au niveau de l'entrée : mesuré au bruit rose,
 		// 48 bandes larges qui se recouvrent sortaient 6 fois trop fort.
 		SynthDef(\sculpt_ring, { |bus, ctl, wet = 0.5, bypass = 0, gain = 0.0133|

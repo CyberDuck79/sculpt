@@ -17,7 +17,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 | source | sample player, later a looper | sample player done |
 | MOSAIC | granular | first 8 settings done |
 | RING | bank of resonant filters | first 8 settings done |
-| DEFORM | drive, crush, compression, noise | to do |
+| DEFORM | drive, crush, compression, noise | all 8 settings done |
 | VAST | delay and reverb | to do |
 
 Modulation will come from the `matrix` and `toolkit` mods, and presets from the norns PSET menu.
@@ -103,6 +103,30 @@ brighter it is, the longer it rings. The tick along the top marks the cutoff.
 RING is taken apart when it is switched off, rather than just paused: a resonant
 filter holds energy, and a paused one would let it out on the way back. Switched
 off, it costs nothing at all.
+
+## DEFORM
+
+DEFORM is a two-band distortion with a noise generator that follows the signal.
+The order inside is the S4's: noise, drive, crush, compress. The noise is added to
+the whole signal; the rest works on each band apart, so that the lows do not
+smear the whole spectrum when drive is pushed.
+
+| Control | Action |
+|---|---|
+| K2 | stage on / off |
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Drive**: soft clipping, mixed in as it rises | **Crush**: `bits`, `redux` (sample rate) or `both`, chosen with **K1 held + E3** |
+| 2 | **Compress**: one knob for threshold and ratio | **Tilt**: which band goes into the distortion first; **K1 held + E3** picks the crossover (80 Hz, 650 Hz, 2.5 kHz) |
+| 3 | **Noise**: how much, with `white`, `pink` or `dust` under **K1 held + E2** | **Decay**: how fast the follower falls back |
+| 4 | **Tone**: where the noise sits in the spectrum | **Wet**: dry / effect balance |
+
+The screen draws the transfer curve: what each input level becomes. The clipping of
+the drive, the stair steps of the crush and the knee of the compressor all read off
+it, and the noise blurs it. Sample-rate reduction does not show there, since it
+happens in time rather than in level. The two bars on either side are the bands,
+low on the left and high on the right.
 
 ## The screen
 

@@ -17,7 +17,7 @@ local shift = false
 -- le sélecteur de fichiers de norns est ouvert
 local selecting = false
 
-local draw_source, draw_mosaic, draw_ring
+local draw_source, draw_mosaic, draw_ring, draw_deform
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
@@ -87,6 +87,24 @@ local STAGES = {
       },
     },
     draw = function() draw_ring() end,
+  },
+  {
+    name = "deform",
+    short = "DEF",
+    on = "def_on",
+    pages = {
+      { "def_drive", { "def_crush", mode = "def_crush_mode" } },
+      { "def_comp", { "def_tilt", mode = "def_xover" } },
+      { { "def_noise", mode = "def_noise_type" }, "def_noise_decay" },
+      { "def_noise_tone", "def_wet" },
+    },
+    keys = {
+      {
+        label = function() return "ON", params:get("def_on") == 1 end,
+        press = function() params:delta("def_on", 1) end,
+      },
+    },
+    draw = function() draw_deform() end,
   },
   {
     name = "settings",
@@ -286,6 +304,69 @@ local function env_height(v)
   local db = 20 * math.log(v, 10)
   if db <= MOS_FLOOR_DB then return 0 end
   return math.max(1, util.round((VIZ_HALF - 2) * (1 - (db / MOS_FLOOR_DB))))
+end
+
+-- DEFORM : la courbe qui dit ce que devient chaque niveau d'entrée. On y
+-- lit l'écrêtage du drive, l'escalier du crush et le coude du compresseur.
+-- La réduction d'échantillonnage, elle, ne s'y voit pas : elle est dans le
+-- temps, pas dans les niveaux.
+local function tanh(x)
+  local e = math.exp(2 * x)
+  return (e - 1) / (e + 1)
+end
+
+draw_deform = function()
+  local on = params:get("def_on") == 1
+  local crush, cmode = params:get("def_crush"), params:get("def_crush_mode")
+  local comp, tilt = params:get("def_comp"), params:get("def_tilt")
+  local noise = params:get("def_noise")
+  local dv = params:get("def_drive")
+  local d = 50 ^ dv
+  local step = 2 ^ (1 - (12 - (crush * 8)))
+  local thr = 1 - (comp * 0.95)
+  local slope = 1 - (comp * 0.8)
+  local makeup = math.min(thr ^ ((slope - 1) * 0.5), 1.6)
+  local size = 2 * VIZ_HALF
+  local x0, half = 64 - (size / 2), size / 2
+
+  screen.level(on and 2 or 1)
+  screen.rect(x0 - 0.5, VIZ_MID - half - 0.5, size, size)
+  screen.stroke()
+
+  for px = 0, size - 1 do
+    local x = ((px / (size - 1)) * 2) - 1
+    local y = (x * (1 - dv)) + ((tanh(x * d) / tanh(d)) * dv * (d ^ -0.75))
+    -- l'escalier n'existe pas en réduction d'échantillonnage seule
+    if cmode ~= 2 then y = util.round(y / step) * step end
+    local a = math.abs(y)
+    if a > thr then y = (y < 0 and -1 or 1) * (thr + ((a - thr) * slope)) end
+    local py = VIZ_MID - util.round(util.clamp(y * makeup, -1, 1) * half)
+    -- le bruit brouille la courbe à hauteur de ce qu'on en met
+    if noise > 0 and math.random() < 0.7 then
+      screen.level(on and 5 or 1)
+      screen.rect(x0 + px, py + util.round((math.random() * 2 - 1) * noise * 7), 1, 1)
+      screen.fill()
+    end
+    screen.level(on and 15 or 3)
+    screen.rect(x0 + px, py, 1, 1)
+    screen.fill()
+  end
+
+  -- de chaque côté, la bande qui part la première dans la saturation
+  for i, db in ipairs({ -tilt * 6, tilt * 6 }) do
+    local h = math.max(1, util.round(size * (db + 6) / 12))
+    local bx = (i == 1) and (x0 - 12) or (x0 + size + 9)
+    screen.level(on and 6 or 1)
+    screen.rect(bx, VIZ_MID + half - h, 3, h)
+    screen.fill()
+  end
+
+  if not on then
+    screen.level(0)
+    screen.rect(52, VIZ_MID - 5, 24, 9)
+    screen.fill()
+    centered("off", 5)
+  end
 end
 
 -- RING : la réponse du banc, une barre par bande. La formule est celle de

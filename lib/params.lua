@@ -35,6 +35,7 @@ function parameters.add(s)
 
   parameters.add_mosaic()
   parameters.add_ring()
+  parameters.add_deform()
 end
 
 -- durée lisible : millisecondes, puis secondes
@@ -148,6 +149,62 @@ function parameters.add_ring()
   params:set_action("ring_pitch", function(x) engine.ring_pitch(x) end)
   params:add_control("ring_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("ring_wet", function(x) engine.ring_wet(x) end)
+end
+
+-- fréquence lisible
+local function hz(p)
+  local f = p:get()
+  if f < 1000 then return util.round(f) .. " hz" end
+  return string.format("%.1fk", f / 1000)
+end
+
+-- les trois coupures du S4
+parameters.DEF_XOVER = { 80, 650, 2500 }
+
+-- DEFORM : distorsion en deux bandes, avec un bruit qui suit le signal
+function parameters.add_deform()
+  params:add_separator("def_sep", "deform")
+
+  params:add_binary("def_on", "deform on", "toggle", 0)
+  params:set_action("def_on", function() engine.def_bypass(1 - params:get("def_on")) end)
+
+  params:add_control("def_drive", "drive", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("def_drive", function(x) engine.def_drive(x) end)
+  -- la valeur dit ce que fait le mode choisi : des bits, ou une fréquence
+  params:add_control("def_crush", "crush", controlspec.new(0, 1, "lin", 0, 0), function(p)
+    local mode = params:get("def_crush_mode")
+    if mode == 1 then return string.format("%.1f b", 12 - (p:get() * 8)) end
+    if mode == 2 then
+      local f = 20000 * ((700 / 20000) ^ p:get())
+      return f < 1000 and (util.round(f) .. " hz") or string.format("%.1fk", f / 1000)
+    end
+    return pct(p)
+  end)
+  params:set_action("def_crush", function(x) engine.def_crush(x) end)
+  params:add_option("def_crush_mode", "crush mode", { "bits", "redux", "both" }, 1)
+  params:set_action("def_crush_mode", function(i) engine.def_crushMode(i - 1) end)
+
+  params:add_control("def_comp", "compress", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("def_comp", function(x) engine.def_comp(x) end)
+  -- vers le bas les graves saturent les premiers, vers le haut les aigus
+  params:add_control("def_tilt", "tilt", controlspec.new(-1, 1, "lin", 0, 0), signed)
+  params:set_action("def_tilt", function(x) engine.def_tilt(x) end)
+  params:add_option("def_xover", "crossover", { "80 hz", "650 hz", "2.5k" }, 2)
+  params:set_action("def_xover", function(i) engine.def_xover(parameters.DEF_XOVER[i]) end)
+
+  params:add_control("def_noise", "noise", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("def_noise", function(x) engine.def_noise(x) end)
+  params:add_option("def_noise_type", "noise type", { "white", "pink", "dust" }, 2)
+  params:set_action("def_noise_type", function(i) engine.def_noiseType(i - 1) end)
+  params:add_control("def_noise_decay", "decay", controlspec.new(0.01, 2, "exp", 0, 0.2), function(p)
+    return seconds(p:get())
+  end)
+  params:set_action("def_noise_decay", function(x) engine.def_noiseDecay(x) end)
+  params:add_control("def_noise_tone", "tone", controlspec.new(100, 8000, "exp", 0, 1200), hz)
+  params:set_action("def_noise_tone", function(x) engine.def_noiseTone(x) end)
+
+  params:add_control("def_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
+  params:set_action("def_wet", function(x) engine.def_wet(x) end)
 end
 
 return parameters
