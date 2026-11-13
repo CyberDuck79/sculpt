@@ -22,6 +22,7 @@ Engine_Sculpt : CroneEngine {
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
 	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
+	var grpVast, vastSynth, vastArgs;
 	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
@@ -62,6 +63,12 @@ Engine_Sculpt : CroneEngine {
 		grpRing = Group.tail(grpFx);
 		ringCtl = Bus.control(s, SculptDefs.ringBands * 3);
 		grpDef = Group.tail(grpFx);
+		grpVast = Group.tail(grpFx);
+		vastArgs = IdentityDictionary[
+			\dlyMix -> 0, \revMix -> 0, \time -> 0.375, \feedback -> 0.4,
+			\spread -> 0, \spreadMode -> 0, \tone -> 0, \size -> 0.5,
+			\decay -> 0.5, \freeze -> 0
+		];
 		defArgs = IdentityDictionary[
 			\drive -> 0, \crush -> 0, \crushMode -> 0, \comp -> 0, \tilt -> 0,
 			\xover -> 650, \noise -> 0, \noiseType -> 1, \noiseDecay -> 0.2,
@@ -132,6 +139,17 @@ Engine_Sculpt : CroneEngine {
 			defSynth !? { defSynth.set(\wet, msg[1]) };
 		});
 		this.addCommand(\def_bypass, "i", { |msg| this.setDeform(msg[1] == 0) });
+
+		// VAST : mêmes règles, plus deux actions
+		[\dlyMix, \revMix, \time, \feedback, \spread, \spreadMode,
+			\tone, \size, \decay, \freeze].do { |key|
+			this.addCommand(("vast_" ++ key).asSymbol, "f", { |msg|
+				vastArgs[key] = msg[1];
+				vastSynth !? { vastSynth.set(key, msg[1]) };
+			});
+		};
+		this.addCommand(\vast_clear, "i", { vastSynth !? { vastSynth.set(\t_clear, 1) } });
+		this.addCommand(\vast_bypass, "i", { |msg| this.setVast(msg[1] == 0) });
 	}
 
 	// Bypass de MOSAIC : le synth fait un fondu vers le signal direct, puis il
@@ -185,6 +203,25 @@ Engine_Sculpt : CroneEngine {
 			if(defSynth.notNil) {
 				var syn = defSynth;
 				defSynth = nil;
+				syn.set(\bypass, 1);
+				{ 0.12.wait; syn.free; }.fork;
+			};
+		};
+	}
+
+	// VAST s'allume et s'éteint comme les autres effets : en se faisant et
+	// se défaisant, pour ne rien garder de ses queues d'une fois sur l'autre.
+	setVast { |on|
+		if(on) {
+			if(vastSynth.isNil) {
+				vastSynth = Synth(\sculpt_vast,
+					[\bus, srcBus, \bypass, 1] ++ vastArgs.getPairs, grpVast);
+				vastSynth.set(\bypass, 0);
+			};
+		} {
+			if(vastSynth.notNil) {
+				var syn = vastSynth;
+				vastSynth = nil;
 				syn.set(\bypass, 1);
 				{ 0.12.wait; syn.free; }.fork;
 			};
@@ -269,8 +306,8 @@ Engine_Sculpt : CroneEngine {
 	free {
 		posFunc.free;
 		mosFunc.free;
-		[player, mosaic, ringShape, ringSynth, defSynth, outSynth,
-			grpSrc, grpMos, grpRing, grpDef, grpFx, grpOut].do { |x| x !? { x.free } };
+		[player, mosaic, ringShape, ringSynth, defSynth, vastSynth, outSynth,
+			grpSrc, grpMos, grpRing, grpDef, grpVast, grpFx, grpOut].do { |x| x !? { x.free } };
 		ringCtl.free;
 		[srcBus, buf].do(_.free);
 		mosBufs.do(_.free);

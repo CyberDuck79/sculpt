@@ -18,7 +18,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 | MOSAIC | granular | first 8 settings done |
 | RING | bank of resonant filters | first 8 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
-| VAST | delay and reverb | to do |
+| VAST | delay and reverb | all 8 settings done |
 
 Modulation will come from the `matrix` and `toolkit` mods, and presets from the norns PSET menu.
 
@@ -133,6 +133,33 @@ the drive, the stair steps of the crush and the knee of the compressor all read 
 it, and the noise blurs it. Sample-rate reduction does not show there, since it
 happens in time rather than in level. The two bars on either side are the bands,
 low on the left and high on the right.
+
+## VAST
+
+VAST is a delay and a reverb, each with its own amount. The signal goes through
+the delay, then the reverb, and both feedback paths pass through the same filter.
+
+| Control | Action |
+|---|---|
+| K2 | stage on / off |
+| K3 | freeze: both loops close on themselves and keep ringing |
+| K1 held + K3 | clear: empties both |
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Delay**: how much of it | **Time**: `free`, or locked to the tempo in straight, triplet or dotted divisions, under **K1 held + E3** |
+| 2 | **Feedback** of the delay | **Spread**: `phase` (offset between the sides), `ping pong`, or `diffuse` (the echoes turn reverb-like) |
+| 3 | **Reverb**: how much of it | **Size**: the length of its delay lines |
+| 4 | **Decay**: how long its tail holds | **Tone**: low-pass going down, high-pass going up, in both feedback paths |
+
+The reverb is a network of eight delay lines of mutually prime lengths, mixed at
+every turn by a Hadamard matrix, with eight short allpass filters thickening the
+input before it. It is built here rather than taken off the shelf because freeze
+and clear need to reach inside the loops, which a closed box cannot offer -- and
+because it costs about a fifth of what JPverb does.
+
+The screen shows two seconds: the echoes of the delay as bars, with the reverb
+tail as a slope behind them.
 
 ## The screen
 

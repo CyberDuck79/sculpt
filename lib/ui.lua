@@ -17,7 +17,7 @@ local shift = false
 -- le sélecteur de fichiers de norns est ouvert
 local selecting = false
 
-local draw_source, draw_mosaic, draw_ring, draw_deform
+local draw_source, draw_mosaic, draw_ring, draw_deform, draw_vast
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
@@ -107,6 +107,32 @@ local STAGES = {
     draw = function() draw_deform() end,
   },
   {
+    name = "vast",
+    short = "VST",
+    on = "vast_on",
+    pages = {
+      { "vast_dly", { "vast_time", mode = "vast_time_mode" } },
+      { "vast_feedback", { "vast_spread", mode = "vast_spread_mode" } },
+      { "vast_rev", "vast_size" },
+      { "vast_decay", "vast_tone" },
+    },
+    keys = {
+      {
+        label = function() return "ON", params:get("vast_on") == 1 end,
+        press = function() params:delta("vast_on", 1) end,
+      },
+      {
+        label = function() return "FRZ", params:get("vast_freeze") == 1 end,
+        press = function() params:delta("vast_freeze", 1) end,
+      },
+    },
+    -- K1 maintenu + K3 : vider les deux boucles
+    shift_keys = {
+      [2] = { press = function() engine.vast_clear(1) end },
+    },
+    draw = function() draw_vast() end,
+  },
+  {
     name = "settings",
     short = "SET",
     pages = { { "clock_tempo", false } },
@@ -150,8 +176,10 @@ end
 function ui.key(n, z)
   if n == 1 then
     shift = z == 1
-  elseif z == 1 and not shift then
-    local k = STAGES[stage].keys[n - 1]
+  elseif z == 1 then
+    local st = STAGES[stage]
+    -- K1 maintenu donne la seconde action de la touche, quand elle existe
+    local k = (shift and st.shift_keys or st.keys)[n - 1]
     if k then k.press() end
   end
 end
@@ -304,6 +332,74 @@ local function env_height(v)
   local db = 20 * math.log(v, 10)
   if db <= MOS_FLOOR_DB then return 0 end
   return math.max(1, util.round((VIZ_HALF - 2) * (1 - (db / MOS_FLOOR_DB))))
+end
+
+-- VAST : les échos du delay sur deux secondes, et par-dessus la queue de
+-- la réverbe. Les deux sont dessinés d'après les réglages, pas lus dans
+-- l'engine : ce qui compte est de voir où tombent les répétitions et
+-- combien de temps la queue tient.
+local VAST_SECONDS = 2
+
+draw_vast = function()
+  local on = params:get("vast_on") == 1
+  local frozen = params:get("vast_freeze") == 1
+  local t = parameters.vast_time_seconds()
+  local fb = params:get("vast_feedback")
+  local dly, rev = params:get("vast_dly"), params:get("vast_rev")
+  local decay, size = params:get("vast_decay"), params:get("vast_size")
+  local bottom = VIZ_MID + VIZ_HALF
+  local px = 128 / VAST_SECONDS
+
+  -- la queue de la réverbe : une nappe qui s'éteint
+  if rev > 0 then
+    -- le gain de boucle et la longueur des lignes donnent le temps de chute
+    local loop = 0.2 + (decay * 0.73)
+    local line = 0.015 + (size * 0.04)
+    local t60 = frozen and 99 or (line * 3 / math.max(0.001, -math.log(loop, 10)))
+    for x = 0, 127 do
+      local age = x / px
+      local a = frozen and 1 or math.max(0, 1 - (age / math.max(0.05, t60)))
+      local h = util.round(VIZ_HALF * 0.75 * a * rev)
+      if h > 0 then
+        screen.level(on and 2 or 1)
+        screen.rect(x, bottom - h, 1, h)
+        screen.fill()
+      end
+    end
+  end
+
+  -- les répétitions du delay
+  if dly > 0 then
+    local k, amp = 1, 1
+    while k <= 24 do
+      local x = (t * k) * px
+      if x > 127 then break end
+      amp = amp * (frozen and 1 or fb)
+      local h = math.max(1, util.round(2 * VIZ_HALF * 0.9 * amp * dly))
+      screen.level(on and (frozen and 8 or 12) or 2)
+      screen.rect(util.round(x), bottom - h, 1, h)
+      screen.fill()
+      if amp < 0.02 then break end
+      k = k + 1
+    end
+  end
+
+  -- l'entrée, à gauche
+  screen.level(on and 15 or 3)
+  screen.rect(0, VIZ_TOP + 2, 1, 2 * VIZ_HALF - 2)
+  screen.fill()
+
+  if frozen then
+    screen.level(0)
+    screen.rect(44, VIZ_MID - 5, 40, 9)
+    screen.fill()
+    centered("frozen", 5)
+  elseif not on then
+    screen.level(0)
+    screen.rect(52, VIZ_MID - 5, 24, 9)
+    screen.fill()
+    centered("off", 5)
+  end
 end
 
 -- DEFORM : la courbe qui dit ce que devient chaque niveau d'entrée. On y

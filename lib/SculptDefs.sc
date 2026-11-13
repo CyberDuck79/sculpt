@@ -6,6 +6,25 @@ SculptDefs {
 	// quantifiés, puis rétablis. Valeur choisie à l'oreille le 2026-11-13.
 	classvar <crushLaw = 0.32;
 
+	// Matrice de Hadamard appliquée par papillon : chaque sortie reçoit
+	// toutes les entrées, avec autant de plus que de moins, en 3 étages de
+	// 8 additions au lieu des 64 multiplications d'une matrice écrite à plat.
+	*hadamard { |arr|
+		var y = arr, size = arr.size, step = 1;
+		while { step < size } {
+			var z = Array.newClear(size);
+			size.do { |i|
+				if((i bitAnd: step) == 0) {
+					z[i] = y[i] + y[i + step];
+					z[i + step] = y[i] - y[i + step];
+				};
+			};
+			y = z;
+			step = step * 2;
+		};
+		^y * size.sqrt.reciprocal;
+	}
+
 	*add {
 		// Lecteur de sample : lit tout le buffer en boucle.
 		//   play  : 1 lecture (fondu de 1 ms, pour garder l'attaque du sample),
@@ -249,6 +268,103 @@ SculptDefs {
 			var mix = Lag.kr(1 - bypass, 0.02);
 			var o = (in * (1 - w)) + (out * w);
 			ReplaceOut.ar(bus, (in * (1 - mix)) + (o * mix));
+		}).add;
+
+		// VAST : un delay et une réverbe, chacun avec son dosage.
+		//
+		// Le signal traverse le delay, puis la réverbe. Les deux boucles de
+		// retour passent par le même filtre (TONE), comme sur le S4.
+		//
+		// La réverbe est un réseau de retards bouclés : 8 lignes de longueurs
+		// premières entre elles, mélangées à chaque tour par une matrice de
+		// Hadamard, qui conserve l'énergie et répartit chaque écho sur toutes
+		// les lignes. Quatre allpass en entrée épaississent tout de suite ce
+		// que le réseau mettrait plusieurs tours à densifier. Les longueurs
+		// sont modulées lentement, ce qui casse les résonances fixes.
+		//
+		// Fait maison plutôt qu'une réverbe toute faite parce que CLEAR et
+		// FREEZE demandent d'atteindre les boucles, ce qu'une boîte fermée
+		// comme JPverb ne permet pas — et parce que c'est six fois moins cher.
+		//   time     : retard du delay, en secondes
+		//   feedback : 0..1 du delay
+		//   spread   : selon spreadMode 0 décalage L/R, 1 ping-pong, 2 diffusion
+		//   tone     : -1 passe-bas .. 0 rien .. +1 passe-haut, dans les boucles
+		//   size     : longueur des lignes de la réverbe
+		//   decay    : durée de sa queue
+		//   freeze   : 1 = les boucles se referment sur elles-mêmes
+		//   t_clear  : vide les deux
+		SynthDef(\sculpt_vast, { |bus, dlyMix = 0, revMix = 0, time = 0.375,
+			feedback = 0.4, spread = 0, spreadMode = 0, tone = 0, size = 0.5,
+			decay = 0.5, freeze = 0, t_clear = 0, bypass = 0|
+			var n = 8;
+			var in = In.ar(bus, 2);
+			var frz = Lag.kr(freeze, 0.05);
+			// le vidage coupe les retours le temps que les lignes se traversent
+			var clear = 1 - Trig.kr(t_clear, max(time, 0.3));
+			// TONE : un seul réglage, passe-bas d'un côté, passe-haut de l'autre
+			var t = Lag.kr(tone, 0.05);
+			var lpf = 18000 * (0.012 ** max(t.neg, 0));
+			var hpf = 20 * (150 ** max(t, 0));
+			var colour = { |sig| LPF.ar(HPF.ar(sig, hpf), lpf) };
+			// une seule boucle pour tout le synth : 2 voies pour le delay,
+			// 8 pour la réverbe
+			var loop = LocalIn.ar(n + 2) * clear;
+			var dFb = loop[0..1], rFb = loop[2..(n + 1)];
+			var sp = Lag.kr(spread, 0.05);
+			// le mode choisit ce qui s'applique, par fondu plutôt que par
+			// aiguillage : les trois cohabitent dans le même graphe
+			var ppAmt = Select.kr(spreadMode, [0, 1, 0]) * sp;
+			var dfAmt = Select.kr(spreadMode, [0, 0, 1]) * sp;
+			var offset = Select.kr(spreadMode, [1, 0, 0]) * sp;
+			var tm = Lag.kr(time, 0.1);
+			var dIn = (in * (1 - frz)) + dFb;
+			var dly = [DelayC.ar(dIn[0], 2.1, tm),
+				DelayC.ar(dIn[1], 2.1, tm * (1 + (offset * 0.4)))];
+			var dfs = dly;
+			var dOut, dBack, rIn, rTimes, rLines, rMix, rOut, out, mixG;
+			4.do { |i|
+				dfs = AllpassC.ar(dfs, 0.08, [0.0131, 0.0217, 0.0353, 0.0471][i]
+					* [1, 1.17], 0.3);
+			};
+			dOut = (dly * (1 - dfAmt)) + (dfs * dfAmt);
+			dOut = colour.(dOut);
+			// ping-pong : ce qui revient repart de l'autre côté
+			dBack = ((dOut * (1 - ppAmt)) + (dOut.reverse * ppAmt))
+				* ((Lag.kr(feedback, 0.05) * (1 - frz)) + frz);
+			out = (in * (1 - dlyMix)) + (dOut * dlyMix);
+
+			// la réverbe
+			// Huit allpass courts épaississent l'entrée avant le réseau. Mesuré
+			// à la réponse impulsionnelle : sans eux, rien ne sort pendant
+			// 50 ms et l'énergie gonfle de 10 dB avant de décroître.
+			rIn = out * (1 - frz) * 0.4;
+			8.do { |i|
+				rIn = AllpassC.ar(rIn, 0.03,
+					[0.0013, 0.0029, 0.0047, 0.0071, 0.0097, 0.0131, 0.0173, 0.0239][i]
+					* [1, 1.19], 0.4);
+			};
+			// longueurs premières entre elles, étirées par size, et modulées
+			rTimes = [0.0149, 0.0211, 0.0257, 0.0301, 0.0353, 0.0419, 0.0477, 0.0531];
+			rLines = Array.fill(n, { |i|
+				var lenMod = rTimes[i] * Lag.kr(size, 0.2).linexp(0, 1, 0.35, 2.2);
+				DelayC.ar(rIn[i % 2] + rFb[i], 0.2,
+					lenMod * (1 + (LFNoise2.kr(0.3 + (i * 0.11)) * 0.004)));
+			});
+			rLines = colour.(rLines);
+			rMix = SculptDefs.hadamard(rLines);
+			// decay : le gain de boucle, jusqu'à l'infini quand on gèle
+			rOut = rMix * ((Lag.kr(decay, 0.2).linlin(0, 1, 0.2, 0.93) * (1 - frz)) + frz);
+			// un seul retour pour tout le synth : les deux voies du delay,
+			// puis les huit lignes de la réverbe
+			LocalOut.ar(dBack ++ rOut);
+			// la sortie mêle la queue du réseau et la diffusion d'entrée : c'est
+			// elle qui remplit les premières millisecondes
+			out = (out * (1 - revMix))
+				+ ((([Mix(rLines[[0, 2, 4, 6]]), Mix(rLines[[1, 3, 5, 7]])] * 0.5)
+					+ (rIn * 1.1)) * 1.6 * revMix);
+
+			mixG = Lag.kr(1 - bypass, 0.02);
+			ReplaceOut.ar(bus, (in * (1 - mixG)) + (out * mixG));
 		}).add;
 
 		SynthDef(\sculpt_out, { |in, out|

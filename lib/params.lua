@@ -36,6 +36,7 @@ function parameters.add(s)
   parameters.add_mosaic()
   parameters.add_ring()
   parameters.add_deform()
+  parameters.add_vast()
 end
 
 -- durée lisible : millisecondes, puis secondes
@@ -206,6 +207,67 @@ function parameters.add_deform()
   params:add_control("def_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("def_wet", function(x) engine.def_wet(x) end)
 
+end
+
+-- VAST : les divisions de TIME quand il est calé sur le tempo, en temps
+parameters.TIME_DIVS = { 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4 }
+
+-- Le retard en secondes : libre, ou calé sur le tempo de l'horloge. Le mode
+-- ternaire raccourcit d'un tiers, le pointé rallonge de moitié.
+function parameters.vast_time_seconds()
+  local mode = params:get("vast_time_mode")
+  local x = params:get("vast_time")
+  if mode == 1 then return 0.01 * (200 ^ x) end
+  local divs = parameters.TIME_DIVS
+  local beats = divs[util.clamp(util.round(x * (#divs - 1)) + 1, 1, #divs)]
+  if mode == 3 then beats = beats * 2 / 3 end
+  if mode == 4 then beats = beats * 1.5 end
+  return util.clamp(beats * 60 / params:get("clock_tempo"), 0.01, 2)
+end
+
+local function send_time()
+  engine.vast_time(parameters.vast_time_seconds())
+end
+
+-- VAST : un delay et une réverbe, chacun avec son dosage
+function parameters.add_vast()
+  params:add_separator("vast_sep", "vast")
+
+  params:add_binary("vast_on", "vast on", "toggle", 0)
+  params:set_action("vast_on", function() engine.vast_bypass(1 - params:get("vast_on")) end)
+
+  params:add_control("vast_dly", "delay", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("vast_dly", function(x) engine.vast_dlyMix(x) end)
+  params:add_control("vast_time", "time", controlspec.new(0, 1, "lin", 0, 0.5), function()
+    local t = parameters.vast_time_seconds()
+    return t < 1 and (util.round(t * 1000) .. " ms") or string.format("%.2f s", t)
+  end)
+  params:set_action("vast_time", send_time)
+  params:add_option("vast_time_mode", "time mode", { "free", "straight", "triplet", "dotted" }, 1)
+  params:set_action("vast_time_mode", send_time)
+
+  params:add_control("vast_feedback", "feedback", controlspec.new(0, 1, "lin", 0, 0.4), pct)
+  params:set_action("vast_feedback", function(x) engine.vast_feedback(x) end)
+  -- ce qui anime le delay : décalage entre les côtés, renvoi d'un côté à
+  -- l'autre, ou diffusion dans la boucle
+  params:add_control("vast_spread", "spread", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("vast_spread", function(x) engine.vast_spread(x) end)
+  params:add_option("vast_spread_mode", "spread mode", { "phase", "ping pong", "diffuse" }, 1)
+  params:set_action("vast_spread_mode", function(i) engine.vast_spreadMode(i - 1) end)
+
+  params:add_control("vast_rev", "reverb", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("vast_rev", function(x) engine.vast_revMix(x) end)
+  params:add_control("vast_size", "size", controlspec.new(0, 1, "lin", 0, 0.5), pct)
+  params:set_action("vast_size", function(x) engine.vast_size(x) end)
+
+  params:add_control("vast_decay", "decay", controlspec.new(0, 1, "lin", 0, 0.5), pct)
+  params:set_action("vast_decay", function(x) engine.vast_decay(x) end)
+  -- un seul réglage : passe-bas vers le bas, passe-haut vers le haut
+  params:add_control("vast_tone", "tone", controlspec.new(-1, 1, "lin", 0, 0), signed)
+  params:set_action("vast_tone", function(x) engine.vast_tone(x) end)
+
+  params:add_binary("vast_freeze", "freeze", "toggle", 0)
+  params:set_action("vast_freeze", function() engine.vast_freeze(params:get("vast_freeze")) end)
 end
 
 return parameters

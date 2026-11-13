@@ -87,9 +87,15 @@ function init()
   -- charge le dernier preset s'il existe, puis envoie tout au moteur
   params:default()
 
+  -- le retard calé sur le tempo suit un changement d'horloge
+  local tempo = params:get("clock_tempo")
   redraw_loop = clock.run(function()
     while true do
       clock.sleep(1 / 15)
+      if params:get("clock_tempo") ~= tempo then
+        tempo = params:get("clock_tempo")
+        if params:get("vast_time_mode") > 1 then params:bang("vast_time") end
+      end
       redraw()
     end
   end)
