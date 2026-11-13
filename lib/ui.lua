@@ -247,6 +247,8 @@ end
 -- Les grains affichés sont simulés à partir des réglages (cadence, taille,
 -- hauteur, position) : ils montrent ce que fait le moteur, pas ses grains réels.
 local MOS_SECONDS = 4
+-- le bas de l'échelle de la forme d'onde du buffer, en décibels
+local MOS_FLOOR_DB = -48
 local PX_PER_S = 128 / MOS_SECONDS
 local mos_grains = {}
 local mos_acc, mos_last = 0, nil
@@ -257,6 +259,15 @@ local function grain_env(x, contour)
   local ramp = contour < 0 and (1 - x) or x
   local k = math.abs(contour)
   return bell * (1 - k) + ramp * k
+end
+
+-- Hauteur d'une colonne du buffer. L'échelle est fixe, graduée en
+-- décibels : l'image garde la même taille quoi qu'il passe dedans, et
+-- un passage faible reste lisible.
+local function env_height(v)
+  local db = 20 * math.log(v, 10)
+  if db <= MOS_FLOOR_DB then return 0 end
+  return math.max(1, util.round((VIZ_HALF - 2) * (1 - (db / MOS_FLOOR_DB))))
 end
 
 draw_mosaic = function()
@@ -306,19 +317,14 @@ draw_mosaic = function()
   -- La part que les grains lisent est en clair.
   local col = state.mos_col or 0
   local zone_w = zone_hi - zone_lo
-  -- ramenée à sa crête, comme dans l'étage source : un passage faible
-  -- reste lisible. Le plancher évite de grossir un buffer presque vide.
-  local top = 0.05
-  for i = 1, 128 do top = math.max(top, state.mos_env[i]) end
   for x = 0, 127 do
     local i = x
     if not fixed then i = (col - (127 - x)) % 128 end
-    local v = state.mos_env[i + 1] or 0
-    if v > 0.002 then
+    local h = env_height(state.mos_env[i + 1] or 0)
+    if h > 0 then
       local lit
       if fixed then lit = ((x - zone_lo) % 128) <= zone_w
       else lit = x >= zone_lo and x <= zone_hi end
-      local h = math.max(1, util.round((VIZ_HALF - 2) * math.sqrt(v / top)))
       screen.level(on and (lit and 10 or 3) or 1)
       screen.rect(x, VIZ_MID - h, 1, 2 * h + 1)
       screen.fill()
