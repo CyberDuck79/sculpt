@@ -91,11 +91,14 @@ Engine_Sculpt : CroneEngine {
 
 	// Bypass de MOSAIC : le synth fait un fondu vers le signal direct, puis il
 	// est mis en pause. Au retour, il reprend avant de rouvrir l'effet.
+	// Le buffer est effacé à la mise en pause : sans ça, il garde ce qu'il
+	// contenait et le rallumage ressort un bout du son d'avant. On préfère
+	// un début silencieux, le temps que la tête d'écriture remplisse.
 	setBypass { |on|
 		mosBypassed = on;
 		if(on) {
 			mosaic.set(\bypass, 1);
-			{ 0.1.wait; if(mosBypassed) { mosaic.run(false) } }.fork;
+			{ 0.1.wait; if(mosBypassed) { mosaic.run(false); mosBufs.do(_.zero) } }.fork;
 		} {
 			mosaic.run(true);
 			mosaic.set(\bypass, 0);
