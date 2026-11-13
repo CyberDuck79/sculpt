@@ -2,8 +2,8 @@
 --
 -- E1 page dans l'étage, E2 / E3 les deux réglages de la page, K2 / K3 les
 -- deux actions de l'étage (leur rôle est écrit en haut de l'écran).
--- K1 maintenu : E1 change d'étage dans la chaîne ; E2 / E3 changeront le
--- mode du réglage (pas encore de réglage à modes).
+-- K1 maintenu : E1 change d'étage dans la chaîne ; E2 / E3 changent le mode
+-- du réglage correspondant, quand il en a un (comme l'encodeur maintenu du S4).
 --
 -- Écran (64 px) : 8 px de ligne du haut, 39 px de visualisation, 16 px
 -- pour les deux réglages.
@@ -12,14 +12,18 @@ local fileselect = require "fileselect"
 
 local ui = {}
 
-local state
+local state, parameters
 local shift = false
 -- le sélecteur de fichiers de norns est ouvert
 local selecting = false
 
--- Les étages, dans l'ordre du signal. pages : deux identifiants de params
--- par page (E2, E3), false pour un encodeur sans réglage.
+local draw_source, draw_mosaic
+
+-- Les étages, dans l'ordre du signal.
+-- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
+--   param, ou { id, mode = id du param de mode }, ou false (encodeur libre).
 -- keys : ce que font K2 et K3 dans l'étage (label, actif ?, action).
+-- on : pour un effet, l'identifiant de son interrupteur (bypass = éteint).
 local STAGES = {
   {
     name = "source",
@@ -42,6 +46,29 @@ local STAGES = {
         end,
       },
     },
+    draw = function() draw_source() end,
+  },
+  {
+    name = "mosaic",
+    short = "MOS",
+    on = "mos_on",
+    pages = {
+      { "mos_pitch", "mos_rate" },
+      { "mos_size", "mos_contour" },
+      { { "mos_scan", mode = "mos_scan_mode" }, "mos_spray" },
+      { "mos_feedback", "mos_wet" },
+    },
+    keys = {
+      {
+        label = function() return "ON", params:get("mos_on") == 1 end,
+        press = function() params:delta("mos_on", 1) end,
+      },
+      {
+        label = function() return "LOCK", params:get("mos_lock") == 1 end,
+        press = function() params:delta("mos_lock", 1) end,
+      },
+    },
+    draw = function() draw_mosaic() end,
   },
   {
     name = "settings",
@@ -56,8 +83,14 @@ local stage = 1
 local page_of = {}
 for i = 1, #STAGES do page_of[i] = 1 end
 
-function ui.init(s)
-  state = s
+function ui.init(s, p)
+  state, parameters = s, p
+end
+
+-- un réglage de page : son identifiant et celui de son mode (ou nil)
+local function slot(entry)
+  if type(entry) == "table" then return entry[1], entry.mode end
+  return entry or nil, nil
 end
 
 function ui.enc(n, d)
@@ -68,9 +101,13 @@ function ui.enc(n, d)
     else
       page_of[stage] = util.clamp(page_of[stage] + d, 1, #st.pages)
     end
-  elseif not shift then
-    local id = st.pages[page_of[stage]][n - 1]
-    if id then params:delta(id, d) end
+    return
+  end
+  local id, mode = slot(st.pages[page_of[stage]][n - 1])
+  if shift then
+    if mode then params:delta(mode, d) end
+  elseif id then
+    params:delta(id, d)
   end
 end
 
@@ -91,21 +128,30 @@ local function raw(p)
   return 0
 end
 
+-- un réglage qui va du négatif au positif : sa barre part du centre
+local function bipolar(p)
+  if p.controlspec then return p.controlspec.minval < 0 end
+  return p.min ~= nil and p.min < 0
+end
+
 local function mmss(seconds)
   local s = math.floor(seconds)
   return string.format("%d:%02d", s // 60, s % 60)
 end
 
 -- ligne du haut : l'étage et ses points de page, le rôle de K2 et K3,
--- l'horloge. K1 maintenu : toute la chaîne, l'étage courant en clair.
+-- l'horloge. K1 maintenu : toute la chaîne, l'étage courant en clair, un
+-- effet éteint en minuscules.
 local function draw_top()
   if shift then
     local x = 0
     for i, st in ipairs(STAGES) do
-      screen.level(i == stage and 15 or 3)
+      local off = st.on and params:get(st.on) == 0
+      local text = off and string.lower(st.short) or st.short
+      screen.level(i == stage and 15 or (off and 2 or 5))
       screen.move(x, 7)
-      screen.text(st.short)
-      x = x + screen.text_extents(st.short) + 5
+      screen.text(text)
+      x = x + screen.text_extents(text) + 5
     end
     return
   end
@@ -153,7 +199,7 @@ local function draw_top()
   screen.fill()
 end
 
--- visualisation de la source : la forme d'onde et la tête de lecture
+-- la zone de visualisation : de y = 9 à y = 47
 local VIZ_TOP, VIZ_MID, VIZ_HALF = 9, 28, 18
 
 local function centered(text, level)
@@ -162,7 +208,8 @@ local function centered(text, level)
   screen.text_center(text)
 end
 
-local function draw_source()
+-- source : la forme d'onde et la tête de lecture
+draw_source = function()
   if state.loading then return centered("loading...", 8) end
   if state.failed then return centered("cannot read this file", 8) end
   if not state.wave then return centered("K3: load a sample", 4) end
@@ -196,22 +243,136 @@ local function draw_source()
   screen.text_right(text)
 end
 
--- un réglage : nom à gauche, valeur à droite, barre fine dessous
-local function draw_param(id, x)
+-- MOSAIC : le buffer de 4 s sur toute la largeur, et les grains qui y lisent.
+-- Les grains affichés sont simulés à partir des réglages (cadence, taille,
+-- hauteur, position) : ils montrent ce que fait le moteur, pas ses grains réels.
+local MOS_SECONDS = 4
+local PX_PER_S = 128 / MOS_SECONDS
+local mos_grains = {}
+local mos_acc, mos_last = 0, nil
+
+-- enveloppe approchée d'un grain, pour sa hauteur à l'écran
+local function grain_env(x, contour)
+  local bell = math.sin(math.pi * x) ^ 2
+  local ramp = contour < 0 and (1 - x) or x
+  local k = math.abs(contour)
+  return bell * (1 - k) + ramp * k
+end
+
+draw_mosaic = function()
+  local on = params:get("mos_on") == 1
+  local locked = params:get("mos_lock") == 1
+  local fixed = params:get("mos_scan_mode") == 2
+  local rate, size = params:get("mos_rate"), params:get("mos_size")
+  local dur = math.min(size, 48 / rate)
+  local ratio = 2 ^ (params:get("mos_pitch") / 12)
+  local scan, spray = params:get("mos_scan"), params:get("mos_spray")
+  local contour = params:get("mos_contour")
+  local now = util.time()
+  local dt = mos_last and math.min(now - mos_last, 0.5) or 0
+  mos_last = now
+
+  -- l'axe : en mode delay, la droite est « maintenant » et la gauche 4 s
+  -- plus tôt ; en mode position, c'est le buffer, de son début à sa fin
+  local head = fixed and state.mos_phase * 128 or 127
+  local zone_a, zone_b
+  if fixed then
+    zone_a = (scan - 0.125 * spray) * 128
+    zone_b = (scan + 0.125 * spray) * 128
+  else
+    local d = scan * parameters.MOS_SCAN_SECONDS
+    zone_a = 127 - (d + spray) * PX_PER_S
+    zone_b = 127 - d * PX_PER_S
+  end
+
+  -- le buffer : une ligne, un repère par seconde
+  screen.level(on and 3 or 1)
+  screen.rect(0, VIZ_MID, 128, 1)
+  screen.fill()
+  for s = 0, MOS_SECONDS do
+    screen.rect(math.min(127, s * PX_PER_S), VIZ_MID - 1, 1, 3)
+    screen.fill()
+  end
+  -- la zone où naissent les grains
+  screen.level(on and 2 or 1)
+  screen.rect(zone_a, VIZ_TOP + 4, math.max(1, zone_b - zone_a), 2 * VIZ_HALF - 7)
+  screen.fill()
+  -- la tête d'écriture : fixe si le buffer est verrouillé
+  screen.level(locked and 4 or (on and 15 or 5))
+  screen.rect(util.clamp(head, 0, 127), VIZ_TOP, 1, 2 * VIZ_HALF + 1)
+  screen.fill()
+
+  -- les grains : chacun naît dans la zone et suit ce qu'il lit
+  if on then
+    mos_acc = mos_acc + rate * dt
+    while mos_acc >= 1 do
+      mos_acc = mos_acc - 1
+      if #mos_grains < 96 then
+        table.insert(mos_grains, {
+          x = zone_a + math.random() * (zone_b - zone_a),
+          y = VIZ_MID + (math.random() * 2 - 1) * (VIZ_HALF - 6),
+          born = now,
+        })
+      end
+    end
+  else
+    mos_grains = {}
+  end
+  for i = #mos_grains, 1, -1 do
+    local g = mos_grains[i]
+    local age = now - g.born
+    if age >= dur then
+      table.remove(mos_grains, i)
+    else
+      -- en mode delay, un grain à vitesse normale reste à la même distance
+      -- de « maintenant » ; plus rapide, il s'en rapproche. En mode position,
+      -- il avance dans le buffer à sa vitesse de lecture.
+      local speed = fixed and ratio or (ratio - 1)
+      local x = (g.x + speed * age * PX_PER_S) % 128
+      local h = math.max(1, util.round(5 * grain_env(age / dur, contour)))
+      screen.level(util.round(3 + 12 * grain_env(age / dur, contour)))
+      screen.rect(x, g.y - h, 1, 2 * h)
+      screen.fill()
+    end
+  end
+
+  if not on then
+    screen.level(0)
+    screen.rect(52, VIZ_MID - 5, 24, 9)
+    screen.fill()
+    centered("off", 5)
+  end
+end
+
+-- un réglage : nom à gauche, valeur à droite, barre fine dessous.
+-- K1 maintenu : un réglage à modes affiche son mode, les autres s'effacent.
+local function draw_param(entry, x)
+  local id, mode = slot(entry)
   if not id then return end
   local p = params:lookup_param(id)
-  screen.level(4)
+  local dim = shift and not mode
+  screen.level(dim and 1 or 4)
   screen.move(x, 55)
   screen.text(p.name)
-  screen.level(15)
+  screen.level(dim and 2 or 15)
   screen.move(x + 60, 55)
-  -- le tempo peut arriver non arrondi : on l'affiche entier
-  screen.text_right(id == "clock_tempo" and string.format("%d", util.round(params:get(id))) or params:string(id))
-  screen.level(2)
+  if shift and mode then
+    screen.text_right(params:string(mode))
+  else
+    -- le tempo peut arriver non arrondi : on l'affiche entier
+    screen.text_right(id == "clock_tempo" and string.format("%d", util.round(params:get(id))) or params:string(id))
+  end
+  screen.level(dim and 1 or 2)
   screen.rect(x, 59, 60, 2)
   screen.fill()
-  screen.level(12)
-  screen.rect(x, 59, math.max(1, util.round(60 * util.clamp(raw(p), 0, 1))), 2)
+  screen.level(dim and 3 or 12)
+  local r = util.clamp(raw(p), 0, 1)
+  if bipolar(p) then
+    local w = util.round(60 * (r - 0.5))
+    screen.rect(x + 30 + math.min(w, 0), 59, math.max(math.abs(w), 1), 2)
+  else
+    screen.rect(x, 59, math.max(1, util.round(60 * r)), 2)
+  end
   screen.fill()
 end
 
@@ -222,9 +383,10 @@ function ui.redraw()
   screen.font_size(8)
 
   draw_top()
-  if STAGES[stage].name == "source" then draw_source() end
+  local st = STAGES[stage]
+  if st.draw then st.draw() end
 
-  local page = STAGES[stage].pages[page_of[stage]]
+  local page = st.pages[page_of[stage]]
   draw_param(page[1], 0)
   draw_param(page[2], 68)
 

@@ -2,7 +2,7 @@
 
 A sculpting sampler for [norns](https://monome.org/docs/norns/): a sound source that runs through a chain of texture effects. It is inspired by the Torso S4, and played with the norns alone.
 
-**Work in progress.** Today sculpt is only the first stage: a sample player. The effects are not there yet.
+**Work in progress.** Today sculpt has a sample player and the first effect, MOSAIC. The other effects are not there yet.
 
 ## Where it is going
 
@@ -13,7 +13,7 @@ source ─► MOSAIC ─► RING ─► DEFORM ─► VAST ─► output
 | Stage | What it does | State |
 |---|---|---|
 | source | sample player, later a looper | sample player done |
-| MOSAIC | granular | to do |
+| MOSAIC | granular | first 8 settings done |
 | RING | bank of resonant filters | to do |
 | DEFORM | drive, crush, compression, noise | to do |
 | VAST | delay and reverb | to do |
@@ -42,6 +42,7 @@ Then restart the norns (**SYSTEM > RESTART**), so that SuperCollider finds the n
 | E2 / E3 | the two settings of the page |
 | K2 / K3 | the two actions of the stage, named at the top of the screen |
 | K1 held + E1 | change stage |
+| K1 held + E2 / E3 | change the mode of that setting, when it has one |
 
 On the **source** stage:
 
@@ -53,13 +54,36 @@ On the **source** stage:
 
 A sample is loaded into memory, up to 5 minutes. A mono file plays on both sides. It loops over its whole length.
 
+## MOSAIC
+
+MOSAIC records the last 4 seconds of what it receives, and plays short grains from that buffer. Effects start switched off: **K2** turns the stage on.
+
+| Control | Action |
+|---|---|
+| K2 | stage on / off |
+| K3 | lock the buffer: nothing new is recorded, the grains keep playing what is there |
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Pitch** of the grains, in semitones | **Rate**: grains per second |
+| 2 | **Size**: length of a grain | **Contour**: shape of a grain, from a sharp attack that fades (`decay`), to a bell, to a rise (`swell`) |
+| 3 | **Scan**: where the grains read | **Spray**: scatters that position at random, and widens the stereo |
+| 4 | **Feedback**: sends the grains back into the buffer | **Wet**: dry / effect balance |
+
+**Scan** has two modes, chosen with **K1 held + E2**:
+
+- `delay`: the grains read behind the input, up to 3.5 s back;
+- `position`: the grains read at a fixed point of the buffer. This is most useful with the buffer locked.
+
+On the screen, the line is the 4-second buffer and the bright bar is where the input is being written. The grey zone is where grains are born, and the short bars are grains. They are drawn from the settings, not read back from the engine.
+
 ## The screen
 
 - **Top line:** the stage, what **K2** and **K3** do right now, and the clock (a square that flashes on each beat).
-- **Middle:** the waveform of the sample, the playhead and the time.
+- **Middle:** a view of the stage. For the source: the waveform of the sample, the playhead and the time.
 - **Bottom:** the two settings of the page.
 
-While K1 is held, the top line shows the whole chain, with the current stage bright.
+While K1 is held, the top line shows the whole chain, with the current stage bright and an effect that is switched off in lower case. A setting that has modes shows its mode.
 
 ## License
 

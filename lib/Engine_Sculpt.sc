@@ -1,9 +1,12 @@
 // Engine_Sculpt : le moteur de sculpt.
 //
-//   source (lecteur de sample) ─► srcBus ─► [ chaîne d'effets, à venir ] ─► sortie
+//   source (lecteur de sample) ─► srcBus ─► MOSAIC ─► [ RING, DEFORM, VAST à venir ] ─► sortie
 //
 // Toutes les sources sortent sur srcBus : en ajouter une (looper, POLY…)
 // ne change rien à la suite de la chaîne.
+// Les effets travaillent sur place : chacun lit srcBus et y remet son
+// résultat (ReplaceOut), dans l'ordre des synths du groupe grpFx. Un effet
+// en bypass est mis en pause : il ne touche plus au bus et ne coûte rien.
 // Les SynthDefs sont dans SculptDefs.sc ; ce fichier crée les synths, les
 // bus et les buffers, et répond aux commandes de Lua.
 Engine_Sculpt : CroneEngine {
@@ -11,8 +14,13 @@ Engine_Sculpt : CroneEngine {
 	classvar <maxSeconds = 300;
 	// colonnes de la forme d'onde envoyée à Lua (largeur de l'écran)
 	classvar <waveCols = 128;
+	// MOSAIC : buffer circulaire de 4 s, comme sur le S4
+	classvar <mosSeconds = 4;
+	// nombre d'enveloppes de grain précalculées pour CONTOUR (de -1 à +1)
+	classvar <contourSteps = 9;
 
-	var srcBus, grpSrc, grpOut, player, outSynth;
+	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
+	var mosaic, mosBufs, envBufs, mosPhase = 0, mosFunc, mosBypassed = true;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
@@ -34,12 +42,27 @@ Engine_Sculpt : CroneEngine {
 		srcBus = Bus.audio(s, 2);
 		// buffer vide tant qu'aucun fichier n'est chargé
 		buf = Buffer.alloc(s, 4, 2);
+		// MOSAIC : un buffer mono par côté (GrainBuf ne lit que du mono)
+		mosBufs = 2.collect { Buffer.alloc(s, (s.sampleRate * mosSeconds).asInteger, 1) };
+		envBufs = Buffer.allocConsecutive(contourSteps, s, 1024, 1);
+		s.sync;
+		envBufs.do { |b, i|
+			b.setn(0, this.contourEnv((i / (contourSteps - 1) * 2) - 1, 1024));
+		};
 		s.sync;
 
 		grpSrc = Group.new(context.xg, \addToHead);
-		grpOut = Group.after(grpSrc);
+		grpFx = Group.after(grpSrc);
+		grpOut = Group.after(grpFx);
 		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf], grpSrc);
+		// les effets démarrent en bypass, donc en pause
+		mosaic = Synth.newPaused(\sculpt_mosaic, [\bus, srcBus, \bufL, mosBufs[0], \bufR, mosBufs[1],
+			\envBase, envBufs[0].bufnum, \envSteps, contourSteps, \bypass, 1], grpFx);
 		outSynth = Synth(\sculpt_out, [\in, srcBus, \out, context.out_b.index], grpOut);
+
+		mosFunc = OSCFunc({ |msg| mosPhase = msg[3] }, '/sculpt/mos');
+		// position de la tête d'écriture de MOSAIC dans son buffer, 0..1
+		this.addPoll(\mos_phase, { mosPhase });
 
 		posFunc = OSCFunc({ |msg| pos = msg[3] }, '/sculpt/pos');
 		this.addPoll(\play_pos, { pos });
@@ -55,6 +78,44 @@ Engine_Sculpt : CroneEngine {
 			};
 		});
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
+
+		// MOSAIC : une commande par réglage, du même nom que l'argument du synth
+		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet].do { |key|
+			this.addCommand(("mos_" ++ key).asSymbol, "f", { |msg| mosaic.set(key, msg[1]) });
+		};
+		// 0 : retard (DELAY FREE), 1 : position fixe
+		this.addCommand(\mos_scan_mode, "i", { |msg| mosaic.set(\scanMode, msg[1]) });
+		this.addCommand(\mos_lock, "i", { |msg| mosaic.set(\lock, msg[1]) });
+		this.addCommand(\mos_bypass, "i", { |msg| this.setBypass(msg[1] > 0) });
+	}
+
+	// Bypass de MOSAIC : le synth fait un fondu vers le signal direct, puis il
+	// est mis en pause. Au retour, il reprend avant de rouvrir l'effet.
+	setBypass { |on|
+		mosBypassed = on;
+		if(on) {
+			mosaic.set(\bypass, 1);
+			{ 0.1.wait; if(mosBypassed) { mosaic.run(false) } }.fork;
+		} {
+			mosaic.run(true);
+			mosaic.set(\bypass, 0);
+		};
+	}
+
+	// Enveloppe d'un grain pour CONTOUR = k. Au centre (0) : une cloche
+	// douce. Vers -1 : attaque franche puis descente (percussif). Vers +1 :
+	// montée puis fin franche (effet « à l'envers »).
+	contourEnv { |k, n|
+		^Array.fill(n, { |j|
+			var x = j / (n - 1);
+			var bell = (x * pi).sin.squared;
+			var ramp = if(k < 0) {
+				if(x < 0.02) { x / 0.02 } { 1 - ((x - 0.02) / 0.98) };
+			} {
+				if(x > 0.98) { (1 - x) / 0.02 } { x / 0.98 };
+			};
+			(bell * (1 - k.abs)) + (ramp * k.abs);
+		});
 	}
 
 	// Forme d'onde approximative : pour chaque colonne, la crête d'un court
@@ -118,7 +179,10 @@ Engine_Sculpt : CroneEngine {
 
 	free {
 		posFunc.free;
-		[player, outSynth, grpSrc, grpOut].do(_.free);
+		mosFunc.free;
+		[player, mosaic, outSynth, grpSrc, grpFx, grpOut].do(_.free);
 		[srcBus, buf].do(_.free);
+		mosBufs.do(_.free);
+		envBufs.do(_.free);
 	}
 }
