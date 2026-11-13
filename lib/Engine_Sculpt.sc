@@ -20,7 +20,7 @@ Engine_Sculpt : CroneEngine {
 	classvar <contourSteps = 9;
 
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
-	var mosaic, mosBufs, envBufs, mosPhase = 0, mosFunc, mosBypassed = true;
+	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
@@ -60,9 +60,9 @@ Engine_Sculpt : CroneEngine {
 			\envBase, envBufs[0].bufnum, \envSteps, contourSteps, \bypass, 1], grpFx);
 		outSynth = Synth(\sculpt_out, [\in, srcBus, \out, context.out_b.index], grpOut);
 
-		mosFunc = OSCFunc({ |msg| mosPhase = msg[3] }, '/sculpt/mos');
-		// position de la tête d'écriture de MOSAIC dans son buffer, 0..1
-		this.addPoll(\mos_phase, { mosPhase });
+		// La tête d'écriture de MOSAIC (0..1) et le niveau écrit, relayés à
+		// Lua tels quels : un poll les lisserait et en perdrait en route.
+		mosFunc = OSCFunc({ |msg| lua.sendMsg("/sculpt/mos", msg[3], msg[4]) }, '/sculpt/mos');
 
 		posFunc = OSCFunc({ |msg| pos = msg[3] }, '/sculpt/pos');
 		this.addPoll(\play_pos, { pos });

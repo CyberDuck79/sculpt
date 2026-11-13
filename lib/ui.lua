@@ -280,10 +280,15 @@ draw_mosaic = function()
     zone_a = (scan - 0.125 * spray) * 128
     zone_b = (scan + 0.125 * spray) * 128
   else
+    -- mêmes bornes que l'engine : un grain ne croise jamais l'écriture
     local d = scan * parameters.MOS_SCAN_SECONDS
-    zone_a = 127 - (d + spray) * PX_PER_S
-    zone_b = 127 - d * PX_PER_S
+    local min_d = dur * math.max(ratio - 1, 0) + 0.01
+    local max_d = MOS_SECONDS - dur - 0.05
+    zone_a = 127 - util.clamp(d + spray, min_d, max_d) * PX_PER_S
+    zone_b = 127 - util.clamp(d, min_d, max_d) * PX_PER_S
   end
+  local zone_lo, zone_hi = zone_a, zone_b
+  if zone_hi < zone_lo then zone_lo, zone_hi = zone_hi, zone_lo end
 
   -- le buffer : une ligne, un repère par seconde
   screen.level(on and 3 or 1)
@@ -293,10 +298,39 @@ draw_mosaic = function()
     screen.rect(math.min(127, s * PX_PER_S), VIZ_MID - 1, 1, 3)
     screen.fill()
   end
-  -- la zone où naissent les grains
-  screen.level(on and 2 or 1)
-  screen.rect(zone_a, VIZ_TOP + 4, math.max(1, zone_b - zone_a), 2 * VIZ_HALF - 7)
-  screen.fill()
+
+  -- Ce que contient le buffer, une colonne par pixel. En mode delay, la
+  -- droite est « maintenant » et le son défile vers la gauche : la zone
+  -- reste à sa distance pendant que la matière passe dessous. En mode
+  -- position, l'axe est le buffer lui-même et c'est la tête qui avance.
+  -- La part que les grains lisent est en clair.
+  local col = state.mos_col or 0
+  local zone_w = zone_hi - zone_lo
+  -- ramenée à sa crête, comme dans l'étage source : un passage faible
+  -- reste lisible. Le plancher évite de grossir un buffer presque vide.
+  local top = 0.05
+  for i = 1, 128 do top = math.max(top, state.mos_env[i]) end
+  for x = 0, 127 do
+    local i = x
+    if not fixed then i = (col - (127 - x)) % 128 end
+    local v = state.mos_env[i + 1] or 0
+    if v > 0.002 then
+      local lit
+      if fixed then lit = ((x - zone_lo) % 128) <= zone_w
+      else lit = x >= zone_lo and x <= zone_hi end
+      local h = math.max(1, util.round((VIZ_HALF - 2) * math.sqrt(v / top)))
+      screen.level(on and (lit and 10 or 3) or 1)
+      screen.rect(x, VIZ_MID - h, 1, 2 * h + 1)
+      screen.fill()
+    end
+  end
+
+  -- les bords de la zone : elle reste lisible même sur un buffer silencieux
+  screen.level(on and 5 or 1)
+  for _, x in ipairs({ zone_lo, zone_hi }) do
+    screen.rect(math.floor(x) % 128, VIZ_TOP + 2, 1, 2 * VIZ_HALF - 3)
+    screen.fill()
+  end
   -- la tête d'écriture : fixe si le buffer est verrouillé
   screen.level(locked and 4 or (on and 15 or 5))
   screen.rect(util.clamp(head, 0, 127), VIZ_TOP, 1, 2 * VIZ_HALF + 1)

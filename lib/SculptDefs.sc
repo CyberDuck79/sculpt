@@ -77,7 +77,7 @@ SculptDefs {
 			var w = Lag.kr(wet, 0.05);
 			// à 100 %, la boucle rend 80 % de ce qu'elle reçoit
 			var fbAmt = Lag.kr(feedback, 0.05) * 0.8;
-			var out;
+			var out, rec;
 			// Le retour est filtré : sous 50 Hz, les grains s'additionnent
 			// toujours en phase et la boucle aurait un gain supérieur à 1.
 			LocalOut.ar(HPF.ar(HPF.ar(grains, 50), 50));
@@ -85,11 +85,17 @@ SculptDefs {
 			// de boucle sous 1) ne l'atteint pas ; il ne retient que les cas où
 			// la boucle résonne, par exemple à 100 % avec la hauteur décalée.
 			// L'entrée, elle, est enregistrée telle quelle.
-			[bufL, bufR].do { |b, i|
-				RecordBuf.ar(in[i] + Limiter.ar(fb[i] * fbAmt, 0.3, 0.005), b, run: run, loop: 1);
+			rec = [bufL, bufR].collect { |b, i|
+				var sig = in[i] + Limiter.ar(fb[i] * fbAmt, 0.3, 0.005);
+				RecordBuf.ar(sig, b, run: run, loop: 1);
+				sig;
 			};
 			out = (in * (1 - w)) + (grains * w);
-			SendReply.kr(Impulse.kr(15), '/sculpt/mos', A2K.kr(wphase) / frames);
+			// Pour la visualisation : la tête d'écriture, et le niveau de ce
+			// qui s'écrit sous elle. 32 messages par seconde, soit une colonne
+			// d'écran par message pour un buffer de 4 s affiché sur 128 px.
+			SendReply.kr(Impulse.kr(32), '/sculpt/mos',
+				[A2K.kr(wphase) / frames, A2K.kr(Amplitude.ar(rec.sum * 0.5, 0.001, 0.02))]);
 			ReplaceOut.ar(bus, (in * (1 - mix)) + (out * mix));
 		}).add;
 

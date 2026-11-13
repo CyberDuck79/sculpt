@@ -6,11 +6,15 @@
 
 local parameters = {}
 
+-- ce que le script partage avec nous (voir sculpt.lua)
+local state
+
 local function pct(param)
   return util.round(param:get() * 100) .. "%"
 end
 
-function parameters.add(state)
+function parameters.add(s)
+  state = s
   params:add_separator("sculpt_sep", "sculpt")
 
   -- le sample de la source, chargé en RAM par l'engine (5 min au plus)
@@ -48,7 +52,12 @@ function parameters.add_mosaic()
   -- les effets sont éteints au départ. Lu ici : l'argument de l'action
   -- ignore la modulation de matrix
   params:add_binary("mos_on", "mosaic on", "toggle", 0)
-  params:set_action("mos_on", function() engine.mos_bypass(1 - params:get("mos_on")) end)
+  params:set_action("mos_on", function()
+    local on = params:get("mos_on")
+    -- l'engine vide son buffer en s'éteignant : l'écran suit
+    if on == 0 then state.clear_mos_env() end
+    engine.mos_bypass(1 - on)
+  end)
   params:add_binary("mos_lock", "lock", "toggle", 0)
   params:set_action("mos_lock", function() engine.mos_lock(params:get("mos_lock")) end)
 

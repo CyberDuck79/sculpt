@@ -25,9 +25,42 @@ local state = {
   loading = false, -- un chargement est en cours
   failed = false,  -- le dernier chargement a échoué
   mos_phase = 0,   -- tête d'écriture de MOSAIC dans son buffer, 0..1
+  mos_env = {},    -- niveau écrit dans le buffer de MOSAIC, une case par colonne
+  mos_col = nil,   -- dernière colonne écrite
 }
 
+-- le buffer de MOSAIC, vu par l'écran : une colonne par pixel
+local MOS_COLS = 128
+for i = 1, MOS_COLS do state.mos_env[i] = 0 end
+
+-- Efface ce que l'écran garde du buffer de MOSAIC. L'engine efface le sien
+-- quand l'effet s'éteint : les deux doivent rester d'accord.
+function state.clear_mos_env()
+  for i = 1, MOS_COLS do state.mos_env[i] = 0 end
+  state.mos_col = nil
+end
+
 local redraw_loop
+
+-- L'engine dit, 32 fois par seconde, où en est la tête d'écriture de MOSAIC
+-- et quel niveau passe sous elle. On range ce niveau dans la colonne que la
+-- tête occupe : l'écran garde ainsi l'image de ce que contient le buffer.
+-- Tant que la tête ne bouge pas (buffer verrouillé), rien n'est réécrit.
+local function mosaic_wrote(phase, peak)
+  state.mos_phase = phase
+  local col = math.floor(phase * MOS_COLS) % MOS_COLS
+  local last = state.mos_col
+  if last == col then return end
+  if last then
+    -- un message en retard peut sauter des colonnes : on les comble
+    local skipped = (col - last) % MOS_COLS
+    for k = 1, math.min(skipped, 8) do
+      state.mos_env[(last + k) % MOS_COLS + 1] = peak
+    end
+  end
+  state.mos_env[col + 1] = peak
+  state.mos_col = col
+end
 
 function init()
   parameters.add(state)
@@ -35,6 +68,7 @@ function init()
 
   -- réponse de l'engine à un chargement : durée (0 = échec), puis les crêtes
   osc.event = function(path, args)
+    if path == "/sculpt/mos" then return mosaic_wrote(args[1], args[2]) end
     if path ~= "/sculpt/loaded" then return end
     state.loading = false
     state.seconds = args[1]
@@ -49,9 +83,6 @@ function init()
   local p = poll.set("play_pos", function(x) state.pos = x end)
   p.time = 1 / 15
   p:start()
-  local pm = poll.set("mos_phase", function(x) state.mos_phase = x end)
-  pm.time = 1 / 15
-  pm:start()
 
   -- charge le dernier preset s'il existe, puis envoie tout au moteur
   params:default()
