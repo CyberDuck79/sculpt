@@ -6,6 +6,36 @@ SculptDefs {
 	// quantifiés, puis rétablis. Valeur choisie à l'oreille le 2026-11-13.
 	classvar <crushLaw = 0.32;
 
+	// La réverbe de VAST, en échantillons à 48 kHz.
+	// Les huit lignes et leurs allpass sont tous des nombres premiers : des
+	// longueurs commensurables feraient coïncider leurs modes, ce qui
+	// s'entend comme une résonance. Les signes d'entrée et de sortie sont
+	// tirés une fois pour toutes ; une ligne qui entre et sort toujours du
+	// même côté excite toujours les mêmes modes.
+	classvar <revLines = #[967, 1361, 1777, 2251, 2833, 3499, 4273, 5147];
+	classvar <revAp;
+	classvar <revDiff = #[211, 397, 653, 1021];
+	classvar <revB = #[1, 1, -1, 1, -1, -1, -1, -1];
+	classvar <revCL = #[1, 1, 1, -1, 1, -1, -1, 1];
+	classvar <revCR = #[1, 1, -1, -1, 1, 1, -1, -1];
+	// Modulation des longueurs. C'est elle qui défait les résonances fixes :
+	// mesurée, l'ondulation du spectre de la queue passe de 12 dB sans elle
+	// à 6 dB à cette profondeur, pour 5,4 dB sur un bruit idéal. Plus
+	// profond, la queue se met à chanter.
+	classvar <revMod = 0.08;
+	classvar <revModHz = 2;
+	// Amortissement : l'aigu doit s'éteindre plus vite que le grave, comme
+	// dans une vraie salle. Sans ce filtre il durait plus longtemps.
+	classvar <revDamp = 5000;
+
+	*initClass {
+		revAp = [
+			#[293, 421, 547, 701, 877, 1087, 1327, 1597],
+			#[181, 257, 337, 431, 541, 661, 811, 977],
+			#[113, 163, 211, 271, 347, 419, 509, 617]
+		];
+	}
+
 	// Matrice de Hadamard appliquée par papillon : chaque sortie reçoit
 	// toutes les entrées, avec autant de plus que de moins, en 3 étages de
 	// 8 additions au lieu des 64 multiplications d'une matrice écrite à plat.
@@ -297,6 +327,7 @@ SculptDefs {
 			feedback = 0.4, spread = 0, spreadMode = 0, tone = 0, size = 0.5,
 			decay = 0.5, freeze = 0, t_clear = 0, bypass = 0|
 			var n = 8;
+			var sr = SampleRate.ir;
 			var in = In.ar(bus, 2);
 			var frz = Lag.kr(freeze, 0.05);
 			// le vidage coupe les retours le temps que les lignes se traversent
@@ -321,7 +352,7 @@ SculptDefs {
 			var dly = [DelayC.ar(dIn[0], 2.1, tm),
 				DelayC.ar(dIn[1], 2.1, tm * (1 + (offset * 0.4)))];
 			var dfs = dly;
-			var dOut, dBack, rIn, rTimes, rLines, rMix, rOut, out, mixG;
+			var dOut, dBack, rIn, rLines, rMix, rOut, out, mixG, t60, ref;
 			4.do { |i|
 				dfs = AllpassC.ar(dfs, 0.08, [0.0131, 0.0217, 0.0353, 0.0471][i]
 					* [1, 1.17], 0.3);
@@ -334,34 +365,50 @@ SculptDefs {
 			out = (in * (1 - dlyMix)) + (dOut * dlyMix);
 
 			// la réverbe
-			// Huit allpass courts épaississent l'entrée avant le réseau. Mesuré
-			// à la réponse impulsionnelle : sans eux, rien ne sort pendant
-			// 50 ms et l'énergie gonfle de 10 dB avant de décroître.
+			// Quatre allpass courts épaississent l'entrée. Leur sortie ne va
+			// qu'au réseau : un allpass ne perd pas d'énergie, il ne fait
+			// qu'étaler l'impulsion, et l'écouter directement donne une
+			// traîne métallique d'une seconde qui couvre la vraie queue.
 			rIn = out * (1 - frz) * 0.4;
-			8.do { |i|
-				rIn = AllpassC.ar(rIn, 0.03,
-					[0.0013, 0.0029, 0.0047, 0.0071, 0.0097, 0.0131, 0.0173, 0.0239][i]
-					* [1, 1.19], 0.4);
+			SculptDefs.revDiff.do { |d|
+				rIn = AllpassC.ar(rIn, 0.04, d / sr * [1, 1.13], 0.5);
 			};
-			// longueurs premières entre elles, étirées par size, et modulées
-			rTimes = [0.0149, 0.0211, 0.0257, 0.0301, 0.0353, 0.0419, 0.0477, 0.0531];
+			t60 = Lag.kr(decay, 0.2).linexp(0, 1, 0.35, 9);
+			ref = Lag.kr(size, 0.2).linexp(0, 1, 0.5, 1.8);
+			// Chaque ligne porte trois allpass : ils allongent la boucle et
+			// densifient les échos sans ajouter de mode qui sonne. La longueur
+			// totale de la boucle décide du nombre de modes ; trop courte, ils
+			// s'espacent et s'entendent un par un.
 			rLines = Array.fill(n, { |i|
-				var lenMod = rTimes[i] * Lag.kr(size, 0.2).linexp(0, 1, 0.35, 2.2);
-				DelayC.ar(rIn[i % 2] + rFb[i], 0.2,
-					lenMod * (1 + (LFNoise2.kr(0.3 + (i * 0.11)) * 0.004)));
+				var d = DelayC.ar((rIn[i % 2] * SculptDefs.revB[i]) + rFb[i], 0.4,
+					SculptDefs.revLines[i] / sr * ref
+						* (1 + (LFNoise2.kr(SculptDefs.revModHz + (i * 0.07))
+							* SculptDefs.revMod)));
+				SculptDefs.revAp.do { |a, k|
+					d = AllpassC.ar(d, 0.14, a[i] / sr * ref
+						* (1 + (LFNoise2.kr(SculptDefs.revModHz + (i * 0.05) + (k * 0.3))
+							* SculptDefs.revMod)), 0.5);
+				};
+				d;
 			});
-			rLines = colour.(rLines);
 			rMix = SculptDefs.hadamard(rLines);
-			// decay : le gain de boucle, jusqu'à l'infini quand on gèle
-			rOut = rMix * ((Lag.kr(decay, 0.2).linlin(0, 1, 0.2, 0.93) * (1 - frz)) + frz);
+			// TONE, et l'amortissement qui fait mourir l'aigu le premier
+			rMix = LPF.ar(HPF.ar(rMix, hpf), min(lpf, SculptDefs.revDamp));
+			// Le gain vise le même temps de descente pour toutes les lignes :
+			// une ligne longue repasse moins souvent, elle doit donc perdre
+			// moins à chaque tour. Gelée, la boucle ne perd plus rien.
+			rOut = rMix * SculptDefs.revLines.collect { |len, i|
+				var eff = (len + SculptDefs.revAp.sum { |a| a[i] }) / sr * ref;
+				((10 ** (-3 * eff / t60)) * (1 - frz)) + frz;
+			};
 			// un seul retour pour tout le synth : les deux voies du delay,
 			// puis les huit lignes de la réverbe
 			LocalOut.ar(dBack ++ rOut);
-			// la sortie mêle la queue du réseau et la diffusion d'entrée : c'est
-			// elle qui remplit les premières millisecondes
+			// Les deux sorties prennent les huit lignes avec des signes
+			// différents : chacune entend tout le réseau, et pas la même chose.
 			out = (out * (1 - revMix))
-				+ ((([Mix(rLines[[0, 2, 4, 6]]), Mix(rLines[[1, 3, 5, 7]])] * 0.5)
-					+ (rIn * 1.1)) * 1.6 * revMix);
+				+ ([Mix(rLines * SculptDefs.revCL), Mix(rLines * SculptDefs.revCR)]
+					* 0.7 * revMix);
 
 			mixG = Lag.kr(1 - bypass, 0.02);
 			ReplaceOut.ar(bus, (in * (1 - mixG)) + (out * mixG));
