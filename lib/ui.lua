@@ -287,16 +287,18 @@ draw_mosaic = function()
   -- plus tôt ; en mode position, c'est le buffer, de son début à sa fin
   local head = fixed and state.mos_phase * 128 or 127
   local zone_a, zone_b
+  -- l'étendue de SPRAY, calculée comme dans l'engine
+  local spray_amt = spray * spray
   if fixed then
-    zone_a = (scan - 0.125 * spray) * 128
-    zone_b = (scan + 0.125 * spray) * 128
+    zone_a = (scan - 0.5 * spray_amt) * 128
+    zone_b = (scan + 0.5 * spray_amt) * 128
   else
     -- mêmes bornes que l'engine : un grain ne croise jamais l'écriture
-    local d = scan * parameters.MOS_SCAN_SECONDS
     local min_d = dur * math.max(ratio - 1, 0) + 0.01
     local max_d = MOS_SECONDS - dur - 0.05
-    zone_a = 127 - util.clamp(d + spray, min_d, max_d) * PX_PER_S
-    zone_b = 127 - util.clamp(d, min_d, max_d) * PX_PER_S
+    local d = util.clamp(scan * parameters.MOS_SCAN_SECONDS, min_d, max_d)
+    zone_a = 127 - (d + (max_d - d) * spray_amt) * PX_PER_S
+    zone_b = 127 - d * PX_PER_S
   end
   local zone_lo, zone_hi = zone_a, zone_b
   if zone_hi < zone_lo then zone_lo, zone_hi = zone_hi, zone_lo end

@@ -54,22 +54,38 @@ SculptDefs {
 			// que l'écriture, qui a fait le tour, ne le rejoigne.
 			var minD = (dur * max(ratio - 1, 0)) + 0.01;
 			var maxD = bufDur - dur - 0.05;
+			// SPRAY couvre tout ce que le buffer laisse disponible. La course
+			// est élevée au carré : ses premiers degrés valent quelques
+			// millisecondes, de quoi défaire l'addition en phase des grains,
+			// et le haut de la course balaie le buffer entier.
+			var sprayAmt = spray.squared;
+			var scanD = (scan * 3.5).clip(minD, maxD);
+			// en delay, l'étendue est ce qui reste derrière le point de scan :
+			// au-delà, les grains s'entasseraient tous sur la borne
+			var spreadDelay = (maxD - scanD) * sprayAmt;
+			var spread = Select.kr(scanMode, [spreadDelay, bufDur * sprayAmt]);
 			var env = envBase + ((contour + 1) * 0.5 * (envSteps - 1)).round;
 			// Les grains se superposent : on ramène le niveau vers celui de
 			// l'entrée. En général leurs ondes se mélangent au hasard, et le
 			// niveau monte comme la racine de leur nombre (0,375 = puissance
 			// moyenne d'une enveloppe). Mais sans dispersion et à hauteur 0, ils
 			// relisent le même son en phase et s'additionnent pleinement (0,5 =
-			// valeur moyenne d'une enveloppe). Quelques millisecondes de spray
-			// suffisent à revenir au premier cas. Des grains clairsemés gardent
-			// leur niveau.
+			// valeur moyenne d'une enveloppe). Entre les deux, la part en phase
+			// dépend de l'étendue de SPRAY. Des grains clairsemés gardent leur
+			// niveau.
 			var n = rate * dur;
-			var inPhase = (1 - (spray * 200)).clip(0, 1) * (1 - pitch.abs).clip(0, 1);
+			// Ce qui décide, c'est l'étendue rapportée à la taille du grain :
+			// des grains dispersés sur bien moins que leur propre durée lisent
+			// presque le même segment et s'additionnent en phase. Le 45 est
+			// mesuré au bruit rose. Un grain transposé se décorrèle tout seul.
+			var inPhase = (1 + (45 * spread / dur)).reciprocal * (1 - pitch.abs).clip(0, 1);
 			var norm = (((n * 0.375).sqrt * (1 - inPhase)) + (n * 0.5 * inPhase)).max(1).reciprocal;
 			var grains = [bufL, bufR].collect { |b|
-				var d = ((scan * 3.5) + (TRand.ar(0, 1, trig) * spray)).clip(minD, maxD);
+				var d = (scanD + (TRand.ar(0, 1, trig) * spreadDelay)).clip(minD, maxD);
 				var posDelay = ((wphase / sr) - d) / bufDur;
-				var posFixed = scan + (TRand.ar(-0.125, 0.125, trig) * spray);
+				// en position, la lecture fait le tour du buffer : à fond,
+				// SPRAY le couvre en entier sans se heurter à une borne
+				var posFixed = scan + (TRand.ar(-0.5, 0.5, trig) * sprayAmt);
 				var pos = Select.ar(K2A.ar(scanMode), [posDelay, posFixed]).wrap(0, 1);
 				GrainBuf.ar(1, trig, dur, b, ratio, pos, 4, 0, env, 64);
 			} * norm;
