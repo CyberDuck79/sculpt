@@ -323,6 +323,7 @@ draw_deform = function()
   local dv = params:get("def_drive")
   local d = 50 ^ dv
   local step = 2 ^ (1 - (12 - (crush * 8)))
+  local law = params:get("def_law")
   local thr = 1 - (comp * 0.95)
   local slope = 1 - (comp * 0.8)
   local makeup = math.min(thr ^ ((slope - 1) * 0.5), 1.6)
@@ -336,8 +337,13 @@ draw_deform = function()
   for px = 0, size - 1 do
     local x = ((px / (size - 1)) * 2) - 1
     local y = (x * (1 - dv)) + ((tanh(x * d) / tanh(d)) * dv * (d ^ -0.75))
-    -- l'escalier n'existe pas en réduction d'échantillonnage seule
-    if cmode ~= 2 then y = util.round(y / step) * step end
+    -- l'escalier n'existe pas en réduction d'échantillonnage seule ; le
+    -- companding le resserre vers le bas, où la résolution est gardée
+    if cmode ~= 2 then
+      local sgn = y < 0 and -1 or 1
+      local c = sgn * (math.abs(y) ^ law)
+      y = sgn * ((math.abs(util.round(c / step) * step)) ^ (1 / law))
+    end
     local a = math.abs(y)
     if a > thr then y = (y < 0 and -1 or 1) * (thr + ((a - thr) * slope)) end
     local py = VIZ_MID - util.round(util.clamp(y * makeup, -1, 1) * half)

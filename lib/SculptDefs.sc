@@ -183,7 +183,8 @@ SculptDefs {
 		//   noiseTone : fréquence du passe-bande posé sur le bruit
 		SynthDef(\sculpt_deform, { |bus, wet = 0.5, bypass = 0, drive = 0, crush = 0,
 			crushMode = 0, comp = 0, tilt = 0, xover = 650, noise = 0, noiseType = 1,
-			noiseDecay = 0.2, noiseTone = 1200, gain = 1|
+			noiseDecay = 0.2, noiseTone = 1200, gain = 1,
+			law = 1, grain = 0, grainTone = 2000|
 			var in = In.ar(bus, 2);
 			var env = Amplitude.ar(in, 0.005, Lag.kr(noiseDecay, 0.05));
 			var nz = [0, 1].collect { |c|
@@ -196,16 +197,16 @@ SculptDefs {
 			// à 0, l'étage laisse passer exactement ce qu'il reçoit.
 			var dv = Lag.kr(drive, 0.05);
 			var d = dv.linexp(0, 1, 1, 50);
-			// Le pas d'arrondi vient d'un nombre de bits, de 12 à 4 : une échelle
-			// en bits répartit l'effet sur toute la course, là où une échelle
-			// en pas d'arrondi n'aurait rien donné avant la toute fin.
-			// Échantillonner à 20 kHz, lui, laisse le signal à peu près intact.
-			var step = 2 ** (1 - (12 - (Lag.kr(crush, 0.05) * 8)));
+			// Le crush compte en bits, de 12 à 4 : une échelle en bits répartit
+			// l'effet sur toute la course, là où une échelle en pas d'arrondi
+			// n'aurait rien donné avant la toute fin. 24 bits et la fréquence
+			// d'échantillonnage du serveur reviennent à ne rien faire.
+			var bits = 12 - (Lag.kr(crush, 0.05) * 8);
 			var rate = Lag.kr(crush, 0.05).linexp(0, 1, 20000, 700);
-			var stepOn = Select.kr(crushMode, [step, 0.0000001, step]);
-			var rateOn = Select.kr(crushMode, [20000, rate, rate]);
+			var bitsOn = Select.kr(crushMode, [bits, 24, bits]);
+			var rateOn = Select.kr(crushMode, [SampleRate.ir, rate, rate]);
 			// jitter : l'horloge d'échantillonnage n'est pas tout à fait stable
-			var trig = Impulse.ar(rateOn * (1 + (LFNoise1.kr(30) * 0.03)));
+			var rateJit = rateOn * (1 + (LFNoise1.kr(30) * 0.03));
 			var c = Lag.kr(comp, 0.05);
 			var thr = 1 - (c * 0.95);
 			var slope = 1 - (c * 0.8);
@@ -218,7 +219,18 @@ SculptDefs {
 				// l'écrêtage remonte beaucoup les niveaux faibles : mesuré au
 				// bruit rose, son gain suit le gain d'attaque à la puissance 0,75
 				var sig = (b * (1 - dv)) + ((((b * d).tanh) / d.tanh) * dv * d.pow(-0.75));
-				sig = Latch.ar(sig.round(stepOn), trig);
+				// Companding : on écrase les niveaux avant de quantifier et on
+				// les rétablit après, pour que les sons faibles gardent de la
+				// résolution. C'est ce qui fait le grain des vieux samplers :
+				// la distorsion suit le signal au lieu d'être un souffle fixe.
+				var pre = sig.sign * sig.abs.pow(law);
+				var q = Decimator.ar(pre, rateJit, bitsOn);
+				var back = q.sign * q.abs.pow(law.reciprocal);
+				// Le grain : l'erreur de quantification, filtrée et redosée.
+				// En négatif on en retire, ce qui adoucit ; en positif on
+				// l'accentue ; grainTone dit où elle se place dans le spectre.
+				var err = back - sig;
+				sig = back + (BPF.ar(err, grainTone, 2) * grain);
 				Compander.ar(sig, sig, thr, 1, slope, 0.005, 0.12) * makeup;
 			}.sum * gain;
 			var w = Lag.kr(wet, 0.05);
