@@ -60,3 +60,7 @@ A sample is loaded into memory, up to 5 minutes. A mono file plays on both sides
 - **Bottom:** the two settings of the page.
 
 While K1 is held, the top line shows the whole chain, with the current stage bright.
+
+## License
+
+GPL-3.0. See `LICENSE` in the repository.
