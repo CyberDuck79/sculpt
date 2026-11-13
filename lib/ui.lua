@@ -396,14 +396,23 @@ local function draw_param(entry, x)
   screen.level(dim and 1 or 4)
   screen.move(x, 55)
   screen.text(p.name)
-  screen.level(dim and 2 or 15)
-  screen.move(x + 60, 55)
+  -- la valeur peut être plus longue que la place laissée par le nom
+  -- (« decay 100 % » par exemple) : elle passe devant, sur du noir, plutôt
+  -- que de se mêler aux lettres du nom
+  local value
   if shift and mode then
-    screen.text_right(params:string(mode))
+    value = params:string(mode)
   else
     -- le tempo peut arriver non arrondi : on l'affiche entier
-    screen.text_right(id == "clock_tempo" and string.format("%d", util.round(params:get(id))) or params:string(id))
+    value = id == "clock_tempo" and string.format("%d", util.round(params:get(id))) or params:string(id)
   end
+  local w = screen.text_extents(value)
+  screen.level(0)
+  screen.rect(x + 58 - w, 49, w + 3, 8)
+  screen.fill()
+  screen.level(dim and 2 or 15)
+  screen.move(x + 60, 55)
+  screen.text_right(value)
   screen.level(dim and 1 or 2)
   screen.rect(x, 59, 60, 2)
   screen.fill()
