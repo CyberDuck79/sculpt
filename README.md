@@ -2,7 +2,7 @@
 
 A sculpting sampler for [norns](https://monome.org/docs/norns/): a sound source that runs through a chain of texture effects. It is inspired by the Torso S4, and played with the norns alone.
 
-**Work in progress.** Today sculpt has a sample player and the first effect, MOSAIC. The other effects are not there yet.
+**Work in progress.** Today sculpt has a sample player and the four effects. MOSAIC and RING have their first eight settings; the rest is on its way.
 
 ## Where it is going
 
@@ -152,14 +152,19 @@ the delay, then the reverb, and both feedback paths pass through the same filter
 | 3 | **Reverb**: how much of it | **Size**: the length of its delay lines |
 | 4 | **Decay**: how long its tail holds | **Tone**: low-pass going down, high-pass going up, in both feedback paths |
 
-The reverb is a network of eight delay lines of mutually prime lengths, mixed at
-every turn by a Hadamard matrix, with eight short allpass filters thickening the
-input before it. It is built here rather than taken off the shelf because freeze
-and clear need to reach inside the loops, which a closed box cannot offer -- and
-because it costs about a fifth of what JPverb does.
+The reverb is a network of eight delay lines of prime lengths, mixed at every turn
+by a Hadamard matrix. Each line carries three allpass filters, and four more thicken
+the input. The lengths are modulated to keep the tail from ringing on fixed notes,
+less and less as the decay grows, so that a held note does not drift in pitch. It is
+built here rather than taken off the shelf because freeze and clear need to reach
+inside the loops, which a closed box cannot offer.
 
-The screen shows two seconds: the echoes of the delay as bars, with the reverb
-tail as a slope behind them.
+The screen is split in two. On the left, the delay: the large circle is the sound
+coming in, and each echo is a smaller, darker circle. **Time** sets the gap between
+circles, **Feedback** how fast they fade, **Delay** how bright they are, and
+**Spread** pulls the left and right halves apart. On the right, the reverb: a room
+seen from above. **Size** makes it larger, **Decay** raises the plate that fills it,
+**Reverb** lights its edges and **Tone** shades the plate.
 
 ## The screen
 
