@@ -347,9 +347,13 @@ local VAST_R = 18
 local function half_ring(cx, r, side, level)
   if level < 1 or r < 0.5 then return end
   screen.level(math.min(15, util.round(level)))
+  -- on se place d'abord au départ de l'arc : sinon il est relié par un
+  -- trait au dernier point laissé par ce qui a été dessiné avant
   if side < 0 then
+    screen.move(cx, VIZ_MID + r)
     screen.arc(cx, VIZ_MID, r, math.pi / 2, math.pi * 3 / 2)
   else
+    screen.move(cx, VIZ_MID - r)
     screen.arc(cx, VIZ_MID, r, -math.pi / 2, math.pi / 2)
   end
   screen.stroke()
@@ -422,20 +426,21 @@ local function draw_vast_reverb(cx, on, frozen)
 
   -- le niveau
   local py = top + util.round(h * (1 - decay))
-  local fill = (rev > 0 and (2 + 4 * rev) or 1) * dim
+  local fill = math.max(1, util.round((1 + 5 * rev) * dim))
   if frozen then fill = fill + 2 end
-  screen.level(math.max(1, util.round(fill)))
+  screen.level(fill)
   diamond(py)
   screen.fill()
 
-  -- les trois arêtes du fond, vues à travers
-  screen.level(math.max(1, util.round((fill + 2) * (on and 1 or 0.6))))
+  -- les trois arêtes du fond, vues à travers : toujours quatre niveaux
+  -- au-dessus de la plaque, un écart plus petit ne se voit pas sur l'écran
+  screen.level(fill + (on and 4 or 2))
   seg(cx, top - s, cx, top + h - s)
   seg(cx, top + h - s, cx + 2 * s, top + h)
   seg(cx, top + h - s, cx - 2 * s, top + h)
 
   -- le reste de la salle
-  screen.level(util.round(13 * dim))
+  screen.level(util.round(15 * dim))
   diamond(top)
   screen.stroke()
   seg(cx - 2 * s, top, cx - 2 * s, top + h)
