@@ -56,7 +56,7 @@ local STAGES = {
       { { "mos_pitch", mode = "mos_scale" }, { "mos_rate", mode = "mos_rate_mode" } },
       { { "mos_size", mode = "mos_size_mode" }, "mos_contour" },
       { { "mos_scan", mode = "mos_scan_mode" }, { "mos_spray", mode = "mos_spray_mode" } },
-      { "mos_feedback", "mos_wet" },
+      { "mos_feedback", { "mos_wet", mode = "mos_wet_mode" } },
       { { "mos_pattern", mode = "mos_pattern_seed" },
         { "mos_rand_pitch", mode = "mos_rand_pitch_mode" } },
       { "mos_rand_rate", "mos_rand_size" },
@@ -82,7 +82,7 @@ local STAGES = {
       { "ring_cutoff", "ring_reso" },
       { { "ring_decay", mode = "ring_decay_mode" }, "ring_tilt" },
       { "ring_slope", "ring_tone" },
-      { { "ring_pitch", mode = "ring_scale" }, "ring_wet" },
+      { { "ring_pitch", mode = "ring_scale" }, { "ring_wet", mode = "ring_wet_mode" } },
       { "ring_waves", { "ring_waves_rate", mode = "ring_waves_rate_mode" } },
       { "ring_noise", { "ring_noise_rate", mode = "ring_noise_rate_mode" } },
       { "ring_detune", false },
@@ -103,7 +103,7 @@ local STAGES = {
       { "def_drive", { "def_crush", mode = "def_crush_mode" } },
       { "def_comp", { "def_tilt", mode = "def_xover" } },
       { { "def_noise", mode = "def_noise_type" }, "def_noise_decay" },
-      { "def_noise_tone", "def_wet" },
+      { "def_noise_tone", { "def_wet", mode = "def_wet_mode" } },
     },
     keys = {
       {
@@ -118,9 +118,9 @@ local STAGES = {
     short = "VST",
     on = "vast_on",
     pages = {
-      { "vast_dly", { "vast_time", mode = "vast_time_mode" } },
+      { { "vast_dly", mode = "vast_dly_mode" }, { "vast_time", mode = "vast_time_mode" } },
       { "vast_feedback", { "vast_spread", mode = "vast_spread_mode" } },
-      { "vast_rev", "vast_size" },
+      { { "vast_rev", mode = "vast_rev_mode" }, "vast_size" },
       { "vast_decay", "vast_tone" },
     },
     keys = {

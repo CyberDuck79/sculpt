@@ -20,7 +20,7 @@ Engine_Sculpt : CroneEngine {
 	classvar <contourSteps = 9;
 
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
-	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringFreqs, ringMute, ringWet = 0.5;
+	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringFreqs, ringMute, ringWet = 0.5, ringSend = 0;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var grpVast, vastSynth, vastArgs;
 	var mosaic, mosBufs, mosPat, mosSnap, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
@@ -72,10 +72,10 @@ Engine_Sculpt : CroneEngine {
 		vastArgs = IdentityDictionary[
 			\dlyMix -> 0, \revMix -> 0, \time -> 0.375, \feedback -> 0.4,
 			\spread -> 0, \spreadMode -> 0, \tone -> 0, \size -> 0.5,
-			\decay -> 0.5, \freeze -> 0
+			\decay -> 0.5, \freeze -> 0, \dlySend -> 0, \revSend -> 0
 		];
 		defArgs = IdentityDictionary[
-			\drive -> 0, \crush -> 0, \crushMode -> 0, \comp -> 0, \tilt -> 0,
+			\send -> 0, \drive -> 0, \crush -> 0, \crushMode -> 0, \comp -> 0, \tilt -> 0,
 			\xover -> 650, \noise -> 0, \noiseType -> 1, \noiseDecay -> 0.2,
 			\noiseTone -> 1200
 		];
@@ -114,7 +114,7 @@ Engine_Sculpt : CroneEngine {
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
 
 		// MOSAIC : une commande par réglage, du même nom que l'argument du synth
-		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet, \pattern,
+		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet, \send, \pattern,
 			\randPitch, \randRate, \randSize, \randAmp, \randRev].do { |key|
 			this.addCommand(("mos_" ++ key).asSymbol, "f", { |msg| mosaic.set(key, msg[1]) });
 		};
@@ -155,10 +155,14 @@ Engine_Sculpt : CroneEngine {
 			ringWet = msg[1];
 			ringSynth !? { ringSynth.set(\wet, msg[1]) };
 		});
+		this.addCommand(\ring_send, "f", { |msg|
+			ringSend = msg[1];
+			ringSynth !? { ringSynth.set(\send, msg[1]) };
+		});
 		this.addCommand(\ring_bypass, "i", { |msg| this.setRing(msg[1] == 0) });
 
 		// DEFORM : mêmes règles que RING
-		[\drive, \crush, \crushMode, \comp, \tilt, \xover,
+		[\send, \drive, \crush, \crushMode, \comp, \tilt, \xover,
 			\noise, \noiseType, \noiseDecay, \noiseTone].do { |key|
 			this.addCommand(("def_" ++ key).asSymbol, "f", { |msg|
 				defArgs[key] = msg[1];
@@ -172,7 +176,7 @@ Engine_Sculpt : CroneEngine {
 		this.addCommand(\def_bypass, "i", { |msg| this.setDeform(msg[1] == 0) });
 
 		// VAST : mêmes règles, plus deux actions
-		[\dlyMix, \revMix, \time, \feedback, \spread, \spreadMode,
+		[\dlyMix, \revMix, \dlySend, \revSend, \time, \feedback, \spread, \spreadMode,
 			\tone, \size, \decay, \freeze].do { |key|
 			this.addCommand(("vast_" ++ key).asSymbol, "f", { |msg|
 				vastArgs[key] = msg[1];
@@ -214,7 +218,8 @@ Engine_Sculpt : CroneEngine {
 					[\out, ringCtl.index, \freqs, ringFreqs, \mute, ringMute]
 						++ ringArgs.getPairs, grpRing);
 				ringSynth = Synth(\sculpt_ring,
-					[\bus, srcBus, \ctl, ringCtl.index, \wet, ringWet, \bypass, 1],
+					[\bus, srcBus, \ctl, ringCtl.index, \wet, ringWet, \send, ringSend,
+						\bypass, 1],
 					ringShape, \addAfter);
 				ringSynth.set(\bypass, 0);
 			};

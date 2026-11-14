@@ -113,7 +113,7 @@ SculptDefs {
 		SynthDef(\sculpt_mosaic, { |bus, bufL, bufR, envBase, envSteps = 9, patBuf, snapBuf,
 			bypass = 0, lock = 0,
 			pitch = 0, rate = 8, size = 0.15, contour = 0, scan = 0.1, scanMode = 0,
-			spray = 0.1, sprayMode = 0, feedback = 0, wet = 0.5, pattern = 0,
+			spray = 0.1, sprayMode = 0, feedback = 0, wet = 0.5, send = 0, pattern = 0,
 			randPitch = 0, randPitchMode = 0, randRate = 0, randSize = 0, randAmp = 0,
 			randRev = 0, t_sync = 0|
 			var in = In.ar(bus, 2);
@@ -220,7 +220,8 @@ SculptDefs {
 				RecordBuf.ar(sig, b, run: run, loop: 1);
 				sig;
 			};
-			out = (in * (1 - w)) + (grains * w);
+			// send : le direct reste entier, l'effet s'ajoute (voir sculpt_ring)
+			out = (in * (1 - (w * (1 - send)))) + (grains * w);
 			// Pour la visualisation : la tête d'écriture, et le niveau de ce
 			// qui s'écrit sous elle. 32 messages par seconde, soit une colonne
 			// d'écran par message pour un buffer de 4 s affiché sur 128 px.
@@ -317,7 +318,7 @@ SculptDefs {
 		//   noise     : 0..1 ; noiseType 0 blanc, 1 rose, 2 dust
 		//   noiseDecay: temps de descente du suiveur, en secondes
 		//   noiseTone : fréquence du passe-bande posé sur le bruit
-		SynthDef(\sculpt_deform, { |bus, wet = 0.5, bypass = 0, drive = 0, crush = 0,
+		SynthDef(\sculpt_deform, { |bus, wet = 0.5, send = 0, bypass = 0, drive = 0, crush = 0,
 			crushMode = 0, comp = 0, tilt = 0, xover = 650, noise = 0, noiseType = 1,
 			noiseDecay = 0.2, noiseTone = 1200, gain = 1|
 			var in = In.ar(bus, 2);
@@ -365,13 +366,15 @@ SculptDefs {
 			}.sum * gain;
 			var w = Lag.kr(wet, 0.05);
 			var mix = Lag.kr(1 - bypass, 0.02);
-			var o = (in * (1 - w)) + (out * w);
+			// WET en MIX fond le direct dans l'effet ; en SEND le direct reste
+			// entier et l'effet s'ajoute, comme un départ sur une console.
+			var o = (in * (1 - (w * (1 - send)))) + (out * w);
 			ReplaceOut.ar(bus, (in * (1 - mix)) + (o * mix));
 		}).add;
 
 		// Le gain remet le banc au niveau de l'entrée : mesuré au bruit rose,
 		// 48 bandes larges qui se recouvrent sortaient 6 fois trop fort.
-		SynthDef(\sculpt_ring, { |bus, ctl, wet = 0.5, bypass = 0, gain = 0.0133|
+		SynthDef(\sculpt_ring, { |bus, ctl, wet = 0.5, send = 0, bypass = 0, gain = 0.0133|
 			var nb = ringBands;
 			var in = In.ar(bus, 2);
 			var p = In.kr(ctl, nb * 4);
@@ -381,7 +384,9 @@ SculptDefs {
 			} * gain;
 			var w = Lag.kr(wet, 0.05);
 			var mix = Lag.kr(1 - bypass, 0.02);
-			var o = (in * (1 - w)) + (out * w);
+			// WET en MIX fond le direct dans l'effet ; en SEND le direct reste
+			// entier et l'effet s'ajoute, comme un départ sur une console.
+			var o = (in * (1 - (w * (1 - send)))) + (out * w);
 			ReplaceOut.ar(bus, (in * (1 - mix)) + (o * mix));
 		}).add;
 
@@ -408,7 +413,7 @@ SculptDefs {
 		//   decay    : durée de sa queue
 		//   freeze   : 1 = les boucles se referment sur elles-mêmes
 		//   t_clear  : vide les deux
-		SynthDef(\sculpt_vast, { |bus, dlyMix = 0, revMix = 0, time = 0.375,
+		SynthDef(\sculpt_vast, { |bus, dlyMix = 0, revMix = 0, dlySend = 0, revSend = 0, time = 0.375,
 			feedback = 0.4, spread = 0, spreadMode = 0, tone = 0, size = 0.5,
 			decay = 0.5, freeze = 0, t_clear = 0, bypass = 0|
 			var n = 8;
@@ -447,7 +452,7 @@ SculptDefs {
 			// ping-pong : ce qui revient repart de l'autre côté
 			dBack = ((dOut * (1 - ppAmt)) + (dOut.reverse * ppAmt))
 				* ((Lag.kr(feedback, 0.05) * (1 - frz)) + frz);
-			out = (in * (1 - dlyMix)) + (dOut * dlyMix);
+			out = (in * (1 - (dlyMix * (1 - dlySend)))) + (dOut * dlyMix);
 
 			// la réverbe
 			// Quatre allpass courts épaississent l'entrée. Leur sortie ne va
@@ -493,7 +498,7 @@ SculptDefs {
 			LocalOut.ar(dBack ++ rOut);
 			// Les deux sorties prennent les huit lignes avec des signes
 			// différents : chacune entend tout le réseau, et pas la même chose.
-			out = (out * (1 - revMix))
+			out = (out * (1 - (revMix * (1 - revSend))))
 				+ ([Mix(rLines * SculptDefs.revCL), Mix(rLines * SculptDefs.revCR)]
 					* 0.7 * revMix);
 

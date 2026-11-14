@@ -56,6 +56,15 @@ On the **source** stage:
 
 A sample is loaded into memory, up to 5 minutes. A mono file plays on both sides. It loops over its whole length.
 
+### Mix and send
+
+Every amount of effect has two modes, chosen with **K1 held** and its encoder:
+**Wet** in MOSAIC, RING and DEFORM, **Delay** and **Reverb** in VAST.
+
+- `mix`, the default, crossfades: at 100% only the effect is left.
+- `send` leaves the dry sound untouched and adds the effect on top of it, like a
+  send on a mixing desk. The level rises with it, up to twice the dry level at 100%.
+
 ## MOSAIC
 
 MOSAIC records the last 4 seconds of what it receives, and plays short grains from that buffer. Effects start switched off: **K2** turns the stage on.

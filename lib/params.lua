@@ -290,6 +290,9 @@ function parameters.add_mosaic()
 
   params:add_control("mos_feedback", "feedback", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("mos_feedback", function(x) engine.mos_feedback(x) end)
+  -- mix : fondu entre le direct et l'effet ; send : le direct reste entier
+  params:add_option("mos_wet_mode", "wet mode", { "mix", "send" }, 1)
+  params:set_action("mos_wet_mode", function(i) engine.mos_send(i - 1) end)
   params:add_control("mos_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("mos_wet", function(x) engine.mos_wet(x) end)
 
@@ -438,6 +441,9 @@ function parameters.add_ring()
     return (v > 0 and "+" or "") .. v .. " st"
   end)
   params:set_action("ring_pitch", function(x) engine.ring_pitch(x) end)
+  -- mix : fondu entre le direct et l'effet ; send : le direct reste entier
+  params:add_option("ring_wet_mode", "wet mode", { "mix", "send" }, 1)
+  params:set_action("ring_wet_mode", function(i) engine.ring_send(i - 1) end)
   params:add_control("ring_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("ring_wet", function(x) engine.ring_wet(x) end)
 
@@ -512,6 +518,9 @@ function parameters.add_deform()
   params:add_control("def_noise_tone", "tone", controlspec.new(100, 8000, "exp", 0, 1200), hz)
   params:set_action("def_noise_tone", function(x) engine.def_noiseTone(x) end)
 
+  -- mix : fondu entre le direct et l'effet ; send : le direct reste entier
+  params:add_option("def_wet_mode", "wet mode", { "mix", "send" }, 1)
+  params:set_action("def_wet_mode", function(i) engine.def_send(i - 1) end)
   params:add_control("def_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("def_wet", function(x) engine.def_wet(x) end)
 
@@ -544,6 +553,9 @@ function parameters.add_vast()
   params:add_binary("vast_on", "vast on", "toggle", 0)
   params:set_action("vast_on", function() engine.vast_bypass(1 - params:get("vast_on")) end)
 
+  -- mix : fondu entre le direct et l'effet ; send : le direct reste entier
+  params:add_option("vast_dly_mode", "delay mode", { "mix", "send" }, 1)
+  params:set_action("vast_dly_mode", function(i) engine.vast_dlySend(i - 1) end)
   params:add_control("vast_dly", "delay", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("vast_dly", function(x) engine.vast_dlyMix(x) end)
   params:add_control("vast_time", "time", controlspec.new(0, 1, "lin", 0, 0.5), function()
@@ -563,6 +575,9 @@ function parameters.add_vast()
   params:add_option("vast_spread_mode", "spread mode", { "phase", "ping pong", "diffuse" }, 1)
   params:set_action("vast_spread_mode", function(i) engine.vast_spreadMode(i - 1) end)
 
+  -- mix : fondu entre le direct et l'effet ; send : le direct reste entier
+  params:add_option("vast_rev_mode", "reverb mode", { "mix", "send" }, 1)
+  params:set_action("vast_rev_mode", function(i) engine.vast_revSend(i - 1) end)
   params:add_control("vast_rev", "reverb", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("vast_rev", function(x) engine.vast_revMix(x) end)
   params:add_control("vast_size", "size", controlspec.new(0, 1, "lin", 0, 0.5), pct)
