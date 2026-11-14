@@ -120,14 +120,14 @@ pitch.
 | 4 | **Pitch**: shifts the whole bank, in semitones | **Wet**: dry / effect balance |
 | 5 | **Waves**: the level of the bands rises and falls in a wave that travels along the bank | **Waves r**: its rate |
 | 6 | **Noise**: the level of each band moves at random, on its own | **Noise r**: its rate |
-| 7 | **Detune**: the bands drift around their place, differently on each side, which widens the sound | |
+| 7 | **Detune**: the bands drift around their place, differently on each side, which widens the sound | **Root**: the root note of the scale |
 
 Modes, chosen with **K1 held** and the encoder of the setting:
 
 | Setting | Modes |
 |---|---|
 | Decay | `choke`: closing the cutoff silences the ringing bands at once. `sustain`: they ring out |
-| Pitch | the scale of the bands. `free` (the default) spreads the 48 bands evenly from 40 Hz to 16 kHz. With a scale, each band moves to the nearest note, and bands that land on the same note become one: a sparse scale such as `fifths` or `octaves` leaves only a few bands, which ring like a chord. The root note is in the `settings` stage |
+| Pitch | the scale of the bands. `free` (the default) spreads the 48 bands evenly from 40 Hz to 16 kHz. With a scale, each band moves to the nearest note, and bands that land on the same note become one: a sparse scale such as `fifths` or `octaves` leaves only a few bands, which ring like a chord. The root note is **Root**, on page 7 |
 | Waves r, Noise r | `free`, from 0.05 to 20 Hz, or a division of the tempo: `straight`, `triplet` or `dotted` |
 
 On the screen, each bar is a band, from the lowest on the left to the highest on

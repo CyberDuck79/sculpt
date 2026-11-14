@@ -85,7 +85,7 @@ local STAGES = {
       { { "ring_pitch", mode = "ring_scale" }, { "ring_wet", mode = "ring_wet_mode" } },
       { "ring_waves", { "ring_waves_rate", mode = "ring_waves_rate_mode" } },
       { "ring_noise", { "ring_noise_rate", mode = "ring_noise_rate_mode" } },
-      { "ring_detune", false },
+      { "ring_detune", "ring_root" },
     },
     keys = {
       {
@@ -145,7 +145,7 @@ local STAGES = {
   {
     name = "settings",
     short = "SET",
-    pages = { { "clock_tempo", "root" } },
+    pages = { { "clock_tempo", false } },
     keys = {},
   },
 }

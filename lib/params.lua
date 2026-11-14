@@ -35,10 +35,6 @@ function parameters.add(s)
   params:add_control("level", "level", controlspec.new(0, 2, "lin", 0, 1), pct)
   params:set_action("level", function(x) engine.level(x) end)
 
-  -- la tonique des gammes qui placent des notes absolues (RING)
-  params:add_option("root", "root", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1)
-  params:set_action("root", function() parameters.send_ring_bands() end)
-
   parameters.add_mosaic()
   parameters.add_ring()
   parameters.add_deform()
@@ -331,7 +327,7 @@ end
 parameters.RING_BANDS, parameters.RING_SPAN = 48, 8.64
 
 function parameters.ring_bands()
-  local nb, scale, root = parameters.RING_BANDS, params:get("ring_scale"), params:get("root") - 1
+  local nb, scale, root = parameters.RING_BANDS, params:get("ring_scale"), params:get("ring_root") - 1
   local freqs, mute, kept = {}, {}, 0
   local last
   for i = 1, nb do
@@ -433,9 +429,12 @@ function parameters.add_ring()
   params:add_control("ring_tone", "tone", controlspec.new(-1, 1, "lin", 0, 0), signed)
   params:set_action("ring_tone", function(x) engine.ring_tone(x) end)
 
-  -- La gamme des bandes. La tonique est un réglage général (SET).
+  -- La gamme des bandes et sa tonique. RING est le seul étage à placer
+  -- des notes absolues, donc le seul à avoir une tonique.
   params:add_option("ring_scale", "scale", scales.NAMES, scales.FREE)
   params:set_action("ring_scale", parameters.send_ring_bands)
+  params:add_option("ring_root", "root", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1)
+  params:set_action("ring_root", parameters.send_ring_bands)
   params:add_number("ring_pitch", "pitch", -24, 24, 0, function(p)
     local v = p:get()
     return (v > 0 and "+" or "") .. v .. " st"
