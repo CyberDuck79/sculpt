@@ -19,10 +19,18 @@ SculptDefs {
 	classvar <revCL = #[1, 1, 1, -1, 1, -1, -1, 1];
 	classvar <revCR = #[1, 1, -1, -1, 1, 1, -1, -1];
 	// Modulation des longueurs. C'est elle qui défait les résonances fixes :
-	// mesurée, l'ondulation du spectre de la queue passe de 12 dB sans elle
-	// à 6 dB à cette profondeur, pour 5,4 dB sur un bruit idéal. Plus
-	// profond, la queue se met à chanter.
-	classvar <revMod = 0.08;
+	// mesurée, l'ondulation du spectre de la queue passe de 10 dB sans elle
+	// à 6 dB, pour 5,4 dB sur un bruit idéal. Son prix est un flottement de
+	// hauteur qui s'ajoute à chaque tour de boucle, donc qui grandit avec
+	// DECAY. D'où les deux parts et l'échelle : une part proportionnelle à la
+	// ligne (elle pèse quand SIZE est grand), une part fixe en millisecondes
+	// (elle pèse quand SIZE est petit), et le tout divisé par la durée de la
+	// queue rapportée à revModRef. Une note tenue s'étale alors sur 40 cents
+	// à DECAY 85 %, quel que soit SIZE, comme dans JPverb ; à 8 % fixes elle
+	// s'étalait sur 290.
+	classvar <revMod = 0.03;
+	classvar <revModMs = 1.0;
+	classvar <revModRef = 1.8;
 	classvar <revModHz = 2;
 	// Amortissement : l'aigu doit s'éteindre plus vite que le grave, comme
 	// dans une vraie salle. Sans ce filtre il durait plus longtemps.
@@ -352,7 +360,7 @@ SculptDefs {
 			var dly = [DelayC.ar(dIn[0], 2.1, tm),
 				DelayC.ar(dIn[1], 2.1, tm * (1 + (offset * 0.4)))];
 			var dfs = dly;
-			var dOut, dBack, rIn, rLines, rMix, rOut, out, mixG, t60, ref;
+			var dOut, dBack, rIn, rLines, rMix, rOut, out, mixG, t60, ref, modK;
 			4.do { |i|
 				dfs = AllpassC.ar(dfs, 0.08, [0.0131, 0.0217, 0.0353, 0.0471][i]
 					* [1, 1.17], 0.3);
@@ -379,15 +387,17 @@ SculptDefs {
 			// densifient les échos sans ajouter de mode qui sonne. La longueur
 			// totale de la boucle décide du nombre de modes ; trop courte, ils
 			// s'espacent et s'entendent un par un.
+			modK = (SculptDefs.revModRef / t60).min(1.5);
 			rLines = Array.fill(n, { |i|
+				var nz = LFNoise2.kr(SculptDefs.revModHz * (1 + (i * 0.035))) * modK;
 				var d = DelayC.ar((rIn[i % 2] * SculptDefs.revB[i]) + rFb[i], 0.4,
-					SculptDefs.revLines[i] / sr * ref
-						* (1 + (LFNoise2.kr(SculptDefs.revModHz + (i * 0.07))
-							* SculptDefs.revMod)));
+					(SculptDefs.revLines[i] / sr * ref * (1 + (nz * SculptDefs.revMod)))
+						+ (nz * SculptDefs.revModMs / 1000));
 				SculptDefs.revAp.do { |a, k|
-					d = AllpassC.ar(d, 0.14, a[i] / sr * ref
-						* (1 + (LFNoise2.kr(SculptDefs.revModHz + (i * 0.05) + (k * 0.3))
-							* SculptDefs.revMod)), 0.5);
+					var n2 = LFNoise2.kr(SculptDefs.revModHz
+						* (1 + (i * 0.025) + (k * 0.15))) * modK;
+					d = AllpassC.ar(d, 0.14, ((a[i] / sr * ref * (1 + (n2 * SculptDefs.revMod)))
+						+ (n2 * SculptDefs.revModMs / 5000)).max(0.0005), 0.5);
 				};
 				d;
 			});
