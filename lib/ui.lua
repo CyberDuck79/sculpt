@@ -486,6 +486,14 @@ draw_vast = function()
   local frozen = params:get("vast_freeze") == 1
   draw_vast_delay(31, on, frozen)
   draw_vast_reverb(96, on, frozen)
+  -- comme les autres étages ; le fond noir est juste à la taille du mot,
+  -- pour ne pas mordre sur la salle quand SIZE est au maximum
+  if not on then
+    screen.level(0)
+    screen.rect(56, VIZ_MID - 5, 16, 9)
+    screen.fill()
+    centered("off", 5)
+  end
 end
 
 -- DEFORM : la courbe qui dit ce que devient chaque niveau d'entrée. On y
