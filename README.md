@@ -121,9 +121,11 @@ Modes, chosen with **K1 held** and the encoder of the setting:
 | Pitch | the scale of the bands. `free` (the default) spreads the 48 bands evenly from 40 Hz to 16 kHz. With a scale, each band moves to the nearest note, and bands that land on the same note become one: a sparse scale such as `fifths` or `octaves` leaves only a few bands, which ring like a chord. The root note is in the `settings` stage |
 | Waves r, Noise r | `free`, from 0.05 to 20 Hz, or a division of the tempo: `straight`, `triplet` or `dotted` |
 
-On the screen, each bar is a band: its place is its pitch, its height is the level
-that band passes, and the brighter it is, the longer it rings. The tick along the
-top marks the cutoff.
+On the screen, each bar is a band, from the lowest on the left to the highest on
+the right. The grey bar is the level that band lets through, as the filter is set.
+The bright bar over it is what it lets through right now: it moves with **Waves**
+and **Noise**, and the longer the band rings, the whiter it is. A band that the
+scale has removed leaves its place empty. The tick along the top marks the cutoff.
 
 RING is taken apart when it is switched off, rather than just paused: a resonant
 filter holds energy, and a paused one would let it out on the way back. Switched

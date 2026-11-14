@@ -545,6 +545,9 @@ end
 -- RING : la réponse du banc, une barre par bande. La formule est celle de
 -- l'engine ; les refaire ici coûte moins que de les faire voyager.
 local RING_BANDS, RING_SPAN = 48, 8.64
+-- 48 bandes d'un pixel, un pixel entre deux : 95 pixels, centrés. C'est le
+-- seul pas entier qui tienne dans les 128 pixels de l'écran.
+local RING_PITCH, RING_X0 = 2, 16
 
 draw_ring = function()
   local on = params:get("ring_on") == 1
@@ -555,43 +558,53 @@ draw_ring = function()
   local hi, lo = (1 - slope) * 12, (1 + slope) * 12
   local ring = decay * decay * 4
   local bottom = VIZ_MID + VIZ_HALF
-
-  -- la place des bandes suit la gamme ; une bande en double n'est pas dessinée
+  -- une bande retirée par la gamme laisse sa place vide
   local freqs, weight = parameters.ring_bands()
   local waves, noise = params:get("ring_waves"), params:get("ring_noise")
   local now = util.time()
   local wave_phase = now * parameters.lfo_hz("ring_waves_rate") * 2 * math.pi
   local noise_hz = parameters.lfo_hz("ring_noise_rate")
 
+  -- de -48 dB en bas à +18 dB en haut
+  local function height(db)
+    return util.round((2 * VIZ_HALF) * util.clamp((db + 48) / 66, 0, 1))
+  end
+
   for i = 0, RING_BANDS - 1 do
-    local f = freqs[i + 1] * ratio
-    local x = math.log(f / cutoff, 2)
-    local db = (-math.max(x, 0) * hi) + (math.min(x, 0) * lo)
-      + (x * tone * 6) + (reso * 18 * math.exp(x * x * -5.5))
-    -- de -48 dB en bas à +18 dB en haut
-    -- la vague et le hasard, à l'image de ce que fait l'engine : le hasard
-    -- est ici un mouvement propre à chaque bande, pas le tirage réel
-    local mod = (1 - waves * (0.5 + 0.5 * math.sin(wave_phase - i * 0.5)))
-      * (1 - noise * (0.5 + 0.5 * math.sin(now * noise_hz * (2 + (i * 7 % 5)) + i * 2.4)))
-    db = db + 20 * math.log(math.max(mod, 0.004), 10)
-    local h = util.round((2 * VIZ_HALF) * util.clamp((db + 48) / 66, 0, 1))
-    if weight[i + 1] == 0 then h = 0 end
-    -- une bande qui sonne longtemps est plus claire
-    local r = (ring * 2 ^ (x * tilt * 0.5)) + 0.0015
-    local lit = util.clamp(math.log(r / 0.0015, 10) / 3, 0, 1)
-    screen.level(on and util.round(3 + 11 * lit) or 1)
-    if h > 0 then
-      local px = math.log(freqs[i + 1] / 40, 2) / RING_SPAN * 127
-      screen.rect(util.clamp(util.round(px), 0, 126), bottom - h, 2, h)
-      screen.fill()
+    if weight[i + 1] > 0 then
+      local x = math.log(freqs[i + 1] * ratio / cutoff, 2)
+      local db = (-math.max(x, 0) * hi) + (math.min(x, 0) * lo)
+        + (x * tone * 6) + (reso * 18 * math.exp(x * x * -5.5))
+      -- La vague et le hasard, à l'image de ce que fait l'engine : le
+      -- hasard est ici un mouvement propre à chaque bande, pas le tirage réel.
+      local mod = (1 - waves * (0.5 + 0.5 * math.sin(wave_phase - i * 0.5)))
+        * (1 - noise * (0.5 + 0.5 * math.sin(now * noise_hz * (2 + (i * 7 % 5)) + i * 2.4)))
+      local full = height(db)
+      local live = height(db + 20 * math.log(math.max(mod, 0.004), 10))
+      local px = RING_X0 + i * RING_PITCH
+      -- en gris, ce que la bande laisse passer d'après le filtre
+      if full > 0 then
+        screen.level(on and 3 or 1)
+        screen.rect(px, bottom - full, 1, full)
+        screen.fill()
+      end
+      -- en clair, ce qu'elle laisse passer à l'instant ; plus elle sonne
+      -- longtemps, plus elle est blanche
+      if live > 0 then
+        local r = (ring * 2 ^ (x * tilt * 0.5)) + 0.0015
+        local lit = util.clamp(math.log(r / 0.0015, 10) / 3, 0, 1)
+        screen.level(on and util.round(8 + 7 * lit) or 2)
+        screen.rect(px, bottom - live, 1, live)
+        screen.fill()
+      end
     end
   end
 
-  -- où se place la coupure sur cet axe
-  local cx = math.log(cutoff / 40, 2) / RING_SPAN * 127
-  if cx >= 0 and cx <= 127 then
+  -- où se place la coupure parmi les bandes
+  local at = math.log(cutoff / ratio / 40, 2) / RING_SPAN * (RING_BANDS - 1)
+  if at >= 0 and at <= RING_BANDS - 1 then
     screen.level(on and 15 or 3)
-    screen.rect(util.round(cx), VIZ_TOP, 1, 3)
+    screen.rect(RING_X0 + util.round(at * RING_PITCH), VIZ_TOP, 1, 3)
     screen.fill()
   end
 
