@@ -399,8 +399,9 @@ local function draw_vast_delay(cx, on, frozen)
   end
 end
 
--- La réverbe. SIZE agrandit la salle, DECAY monte le niveau qui la
--- remplit, REVERB l'éclaire. Gelée, la salle est pleine.
+-- La réverbe. SIZE agrandit la salle, DECAY monte la plaque qui la
+-- remplit, REVERB éclaire ses arêtes et TONE la plaque : sombre quand il
+-- coupe l'aigu, claire quand il coupe le grave. Gelée, la salle est pleine.
 local function draw_vast_reverb(cx, on, frozen)
   local size, rev = params:get("vast_size"), params:get("vast_rev")
   local decay = frozen and 1 or params:get("vast_decay")
@@ -426,21 +427,24 @@ local function draw_vast_reverb(cx, on, frozen)
 
   -- le niveau
   local py = top + util.round(h * (1 - decay))
-  local fill = math.max(1, util.round((1 + 5 * rev) * dim))
-  if frozen then fill = fill + 2 end
+  local fill = math.max(1, util.round((6 + 5 * params:get("vast_tone")) * dim))
+  local edge = math.max(1, util.round((3 + 12 * rev) * dim))
   screen.level(fill)
   diamond(py)
   screen.fill()
 
-  -- les trois arêtes du fond, vues à travers : toujours quatre niveaux
-  -- au-dessus de la plaque, un écart plus petit ne se voit pas sur l'écran
-  screen.level(fill + (on and 4 or 2))
+  -- les trois arêtes du fond, vues à travers : à mi-chemin entre la plaque
+  -- et les arêtes, mais jamais à moins de trois niveaux de la plaque, un
+  -- écart plus petit ne se voit pas sur l'écran
+  local back = (fill + edge) / 2
+  if math.abs(back - fill) < 3 then back = fill + (fill > 8 and -3 or 3) end
+  screen.level(util.clamp(util.round(back), 0, 15))
   seg(cx, top - s, cx, top + h - s)
   seg(cx, top + h - s, cx + 2 * s, top + h)
   seg(cx, top + h - s, cx - 2 * s, top + h)
 
   -- le reste de la salle
-  screen.level(util.round(15 * dim))
+  screen.level(edge)
   diamond(top)
   screen.stroke()
   seg(cx - 2 * s, top, cx - 2 * s, top + h)
