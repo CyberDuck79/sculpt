@@ -109,7 +109,11 @@ function enc(n, d) ui.enc(n, d) end
 
 function key(n, z) ui.key(n, z) end
 
-function redraw() ui.redraw() end
+-- norns peut demander un dessin pendant le chargement, avant que les
+-- paramètres existent
+function redraw()
+  if params.lookup["play"] then ui.redraw() end
+end
 
 function cleanup()
   if redraw_loop then clock.cancel(redraw_loop) end
