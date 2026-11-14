@@ -5,8 +5,8 @@
 -- K1 maintenu : E1 change d'étage dans la chaîne ; E2 / E3 changent le mode
 -- du réglage correspondant, quand il en a un (comme l'encodeur maintenu du S4).
 --
--- Écran (64 px) : 8 px de ligne du haut, 39 px de visualisation, 16 px
--- pour les deux réglages.
+-- Écran (64 px) : 7 px de ligne du haut, 37 px de visualisation (lignes 10
+-- à 46) entre deux marges de 3 px, 14 px pour les deux réglages.
 
 local fileselect = require "fileselect"
 
@@ -275,8 +275,10 @@ local function draw_top()
   screen.fill()
 end
 
--- la zone de visualisation : de y = 9 à y = 47
-local VIZ_TOP, VIZ_MID, VIZ_HALF = 9, 28, 18
+-- La zone de visualisation : les lignes 10 à 46. Le texte du haut finit à
+-- la ligne 6 et celui des réglages commence à la ligne 50 : trois lignes
+-- vides de chaque côté.
+local VIZ_TOP, VIZ_MID, VIZ_HALF = 10, 29, 18
 
 local function centered(text, level)
   screen.level(level)
@@ -513,7 +515,8 @@ draw_deform = function()
     end
     local a = math.abs(y)
     if a > thr then y = (y < 0 and -1 or 1) * (thr + ((a - thr) * slope)) end
-    local py = VIZ_MID - util.round(util.clamp(y * makeup, -1, 1) * half)
+    -- la courbe reste à l'intérieur du cadre, qui occupe les lignes du bord
+    local py = VIZ_MID - 1 - util.round(util.clamp(y * makeup, -1, 1) * (half - 1))
     -- le bruit brouille la courbe à hauteur de ce qu'on en met
     if noise > 0 and math.random() < 0.7 then
       screen.level(on and 5 or 1)
