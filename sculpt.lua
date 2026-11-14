@@ -98,6 +98,7 @@ function init()
         tempo = params:get("clock_tempo")
         if params:get("vast_time_mode") > 1 then params:bang("vast_time") end
         parameters.mos_tempo_changed()
+        parameters.ring_tempo_changed()
       end
       redraw()
     end

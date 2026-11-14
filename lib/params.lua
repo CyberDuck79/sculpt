@@ -35,6 +35,10 @@ function parameters.add(s)
   params:add_control("level", "level", controlspec.new(0, 2, "lin", 0, 1), pct)
   params:set_action("level", function(x) engine.level(x) end)
 
+  -- la tonique des gammes qui placent des notes absolues (RING)
+  params:add_option("root", "root", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1)
+  params:set_action("root", function() parameters.send_ring_bands() end)
+
   parameters.add_mosaic()
   parameters.add_ring()
   parameters.add_deform()
@@ -73,6 +77,10 @@ local function div_index(id, list)
   local raw = params:lookup_param(id):get_raw()
   return util.clamp(util.round(raw * (#list - 1)) + 1, 1, #list)
 end
+
+-- combien les bandes restantes de RING sont remontées quand une gamme en
+-- retire : (48 / restantes) à cette puissance. Mesuré au bruit rose.
+local RING_LIFT = 0.5
 
 local function beat_seconds()
   return 60 / params:get("clock_tempo")
@@ -312,6 +320,82 @@ local function signed(p)
 end
 
 -- RING : un banc de 48 filtres résonnants
+-- RING : la place des 48 bandes. Sans gamme, elles sont à intervalle égal
+-- de 40 Hz à 16 kHz. Avec une gamme, chacune va sur la note la plus proche ;
+-- quand plusieurs tombent sur la même note, une seule reste. Les bandes qui
+-- restent sont remontées pour que le niveau ne s'effondre pas avec leur
+-- nombre.
+parameters.RING_BANDS, parameters.RING_SPAN = 48, 8.64
+
+function parameters.ring_bands()
+  local nb, scale, root = parameters.RING_BANDS, params:get("ring_scale"), params:get("root") - 1
+  local freqs, mute, kept = {}, {}, 0
+  local last
+  for i = 1, nb do
+    local f = 40 * 2 ^ ((i - 1) * parameters.RING_SPAN / (nb - 1))
+    local on = 1
+    if not scales.is_free(scale) then
+      local midi = 69 + 12 * math.log(f / 440, 2)
+      local note = root + scales.snap(scale, midi - root)
+      f = 440 * 2 ^ ((note - 69) / 12)
+      if note == last then on = 0 end
+      last = note
+    end
+    freqs[i], mute[i] = f, on
+    kept = kept + on
+  end
+  local lift = (nb / kept) ^ RING_LIFT
+  for i = 1, nb do mute[i] = mute[i] * lift end
+  return freqs, mute
+end
+
+function parameters.send_ring_bands()
+  local freqs, mute = parameters.ring_bands()
+  engine.ring_freqs(table.unpack(freqs))
+  engine.ring_mute(table.unpack(mute))
+end
+
+-- Vitesse de WAVES et de NOISE : libre, de 0,05 à 20 Hz, ou une période
+-- calée sur le tempo. Ternaire : un tiers plus court ; pointé : moitié plus long.
+local LFO_DIVS = {
+  { "4/1", 16 }, { "2/1", 8 }, { "1/1", 4 }, { "1/2", 2 }, { "1/4", 1 },
+  { "1/8", 1 / 2 }, { "1/16", 1 / 4 },
+}
+
+local function lfo_hz(id)
+  local mode = params:get(id .. "_mode")
+  if mode == 1 then return 0.05 * (400 ^ params:get(id)) end
+  local beats = LFO_DIVS[div_index(id, LFO_DIVS)][2]
+  if mode == 3 then beats = beats * 2 / 3 end
+  if mode == 4 then beats = beats * 1.5 end
+  return 1 / (beats * beat_seconds())
+end
+parameters.lfo_hz = lfo_hz
+
+local function lfo_string(id)
+  local mode = params:get(id .. "_mode")
+  if mode == 1 then
+    local hz = lfo_hz(id)
+    return string.format(hz < 10 and "%.2f hz" or "%.1f hz", hz)
+  end
+  return LFO_DIVS[div_index(id, LFO_DIVS)][1] .. ({ "", "", "t", "." })[mode]
+end
+
+local function send_ring_rates()
+  engine.ring_wavesRate(lfo_hz("ring_waves_rate"))
+  engine.ring_noiseRate(lfo_hz("ring_noise_rate"))
+end
+
+function parameters.ring_tempo_changed()
+  send_ring_rates()
+end
+
+for _, id in ipairs { "ring_waves_rate", "ring_noise_rate" } do
+  parameters.deltas[id] = function(d)
+    if params:get(id .. "_mode") > 1 then div_delta(id, LFO_DIVS, d) else params:delta(id, d) end
+  end
+end
+
 function parameters.add_ring()
   params:add_separator("ring_sep", "ring")
 
@@ -328,6 +412,10 @@ function parameters.add_ring()
   params:add_control("ring_reso", "resonance", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("ring_reso", function(x) engine.ring_reso(x) end)
 
+  -- choke : le profil coupe aussi les bandes qui sonnent ; sustain : elles
+  -- finissent de sonner quand le profil se referme
+  params:add_option("ring_decay_mode", "decay mode", { "choke", "sustain" }, 1)
+  params:set_action("ring_decay_mode", function(i) engine.ring_sustain(i - 1) end)
   -- combien de temps chaque bande continue de sonner
   params:add_control("ring_decay", "decay", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("ring_decay", function(x) engine.ring_decay(x) end)
@@ -342,6 +430,9 @@ function parameters.add_ring()
   params:add_control("ring_tone", "tone", controlspec.new(-1, 1, "lin", 0, 0), signed)
   params:set_action("ring_tone", function(x) engine.ring_tone(x) end)
 
+  -- La gamme des bandes. La tonique est un réglage général (SET).
+  params:add_option("ring_scale", "scale", scales.NAMES, scales.FREE)
+  params:set_action("ring_scale", parameters.send_ring_bands)
   params:add_number("ring_pitch", "pitch", -24, 24, 0, function(p)
     local v = p:get()
     return (v > 0 and "+" or "") .. v .. " st"
@@ -349,6 +440,24 @@ function parameters.add_ring()
   params:set_action("ring_pitch", function(x) engine.ring_pitch(x) end)
   params:add_control("ring_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("ring_wet", function(x) engine.ring_wet(x) end)
+
+  -- le niveau des bandes ondule, en vague qui parcourt le banc
+  params:add_control("ring_waves", "waves", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("ring_waves", function(x) engine.ring_waves(x) end)
+  -- le niveau de chaque bande bouge au hasard
+  params:add_control("ring_noise", "noise", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("ring_noise", function(x) engine.ring_noise(x) end)
+  for _, r in ipairs { { "ring_waves_rate", "waves r", 0.5 }, { "ring_noise_rate", "noise r", 0.6 } } do
+    params:add_option(r[1] .. "_mode", r[2] .. " mode", { "free", "straight", "triplet", "dotted" }, 1)
+    params:set_action(r[1] .. "_mode", send_ring_rates)
+    params:add_control(r[1], r[2], controlspec.new(0, 1, "lin", 0, r[3]), function()
+      return lfo_string(r[1])
+    end)
+    params:set_action(r[1], send_ring_rates)
+  end
+  -- la place des bandes flotte, à part pour chaque côté
+  params:add_control("ring_detune", "detune", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("ring_detune", function(x) engine.ring_detune(x) end)
 end
 
 -- fréquence lisible

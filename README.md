@@ -2,7 +2,7 @@
 
 A sculpting sampler for [norns](https://monome.org/docs/norns/): a sound source that runs through a chain of texture effects. It is inspired by the Torso S4, and played with the norns alone.
 
-**Work in progress.** Today sculpt has a sample player and the four effects. RING has its first eight settings; the rest is on its way.
+**Work in progress.** Today sculpt has a sample player and the four effects.
 
 ## Where it is going
 
@@ -16,7 +16,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 |---|---|---|
 | source | sample player, later a looper | sample player done |
 | MOSAIC | granular | 14 settings done |
-| RING | bank of resonant filters | first 8 settings done |
+| RING | bank of resonant filters | 13 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
 | VAST | delay and reverb | all 8 settings done |
 
@@ -109,9 +109,21 @@ pitch.
 | 2 | **Decay**: how long each band keeps ringing | **Tilt**: leans that ringing towards the low or the high bands |
 | 3 | **Slope**: -100% low-pass, 0% band-pass, +100% high-pass | **Tone**: overall lean of the response, lows against highs |
 | 4 | **Pitch**: shifts the whole bank, in semitones | **Wet**: dry / effect balance |
+| 5 | **Waves**: the level of the bands rises and falls in a wave that travels along the bank | **Waves r**: its rate |
+| 6 | **Noise**: the level of each band moves at random, on its own | **Noise r**: its rate |
+| 7 | **Detune**: the bands drift around their place, differently on each side, which widens the sound | |
 
-On the screen, each bar is a band: its height is the level that band passes, and the
-brighter it is, the longer it rings. The tick along the top marks the cutoff.
+Modes, chosen with **K1 held** and the encoder of the setting:
+
+| Setting | Modes |
+|---|---|
+| Decay | `choke`: closing the cutoff silences the ringing bands at once. `sustain`: they ring out |
+| Pitch | the scale of the bands. `free` (the default) spreads the 48 bands evenly from 40 Hz to 16 kHz. With a scale, each band moves to the nearest note, and bands that land on the same note become one: a sparse scale such as `fifths` or `octaves` leaves only a few bands, which ring like a chord. The root note is in the `settings` stage |
+| Waves r, Noise r | `free`, from 0.05 to 20 Hz, or a division of the tempo: `straight`, `triplet` or `dotted` |
+
+On the screen, each bar is a band: its place is its pitch, its height is the level
+that band passes, and the brighter it is, the longer it rings. The tick along the
+top marks the cutoff.
 
 RING is taken apart when it is switched off, rather than just paused: a resonant
 filter holds energy, and a paused one would let it out on the way back. Switched

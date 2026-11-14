@@ -255,10 +255,22 @@ SculptDefs {
 		//   tilt   : incline cette durée entre graves et aigus
 		//   tone   : pente générale du profil, graves contre aigus
 		//   pitch  : transpose tout le banc, en demi-tons
+		// Deuxième lot :
+		//   freqs, mute : la place des 48 bandes et leur poids, calculés par
+		//                 Lua d'après la gamme (une bande en double est à 0)
+		//   sustain     : 1 = une bande ne peut pas s'éteindre plus vite que
+		//                 sa résonance, donc fermer CUTOFF laisse les queues
+		//                 finir ; 0 = le profil coupe net (CHOKE)
+		//   waves       : le niveau ondule, en vague qui parcourt le banc
+		//   noise       : le niveau de chaque bande bouge au hasard
+		//   detune      : la place des bandes flotte, à part pour chaque côté
+		// La sortie : fréquences de gauche, de droite, niveaux, durées.
 		SynthDef(\sculpt_ring_shape, { |out, cutoff = 16000, reso = 0, decay = 0,
-			pitch = 0, slope = -1, tone = 0, tilt = 0|
+			pitch = 0, slope = -1, tone = 0, tilt = 0, sustain = 0, waves = 0, wavesRate = 1,
+			noise = 0, noiseRate = 1, detune = 0|
 			var nb = ringBands;
-			var base = Array.fill(nb, { |i| 40 * (2 ** (i * 8.64 / (nb - 1))) });
+			var base = \freqs.kr(Array.fill(nb, { |i| 40 * (2 ** (i * 8.64 / (nb - 1))) }));
+			var mute = \mute.kr(1 ! nb);
 			var ratio = pitch.midiratio;
 			// position de chaque bande par rapport à cutoff, en octaves
 			var xs = base.collect { |f| f.log2 + (ratio / cutoff).log2 };
@@ -266,16 +278,28 @@ SculptDefs {
 			var loCut = (1 + slope) * 12;
 			var ring = decay.squared * 4;
 			var rings = xs.collect { |x| (ring * 2.pow(x * tilt * 0.5)) + 0.0015 };
+			var wph = Phasor.kr(0, wavesRate * 2pi / ControlRate.ir, 0, 2pi);
 			// Une bande qui sonne longtemps est aussi plus étroite : elle
 			// reçoit moins et rend plus. Mesuré au bruit rose, le niveau monte
 			// comme la durée de résonance à la puissance 0,34 ; on le reprend
 			// ici, sinon monter DECAY ferait surtout monter le volume.
 			var amps = xs.collect { |x, i|
-				((x.max(0).neg * hiCut) + (x.min(0) * loCut) + (x * tone * 6)
+				var a = ((x.max(0).neg * hiCut) + (x.min(0) * loCut) + (x * tone * 6)
 					+ (reso * 18 * (x.squared * -5.5).exp)).dbamp
 				* (0.0015 / rings[i]).pow(0.34);
+				// la vague : un demi-radian de décalage d'une bande à la suivante
+				var w = 1 - (waves * (0.5 + (0.5 * (wph - (i * 0.5)).sin)));
+				var nz = 1 - (noise * LFNoise1.kr(noiseRate * (1 + (i * 0.013))).range(0, 1));
+				a = Select.kr(sustain, [a, LagUD.kr(a, 0.01, rings[i])]);
+				a * w * nz * mute[i];
 			};
-			Out.kr(out, base.collect { |f| f * ratio } ++ amps ++ rings);
+			// un demi-ton d'écart au plus, lentement
+			var drift = { |rate|
+				base.collect { |f, i|
+					f * ratio * (LFNoise2.kr(rate + (i * 0.01)) * detune * 0.5).midiratio;
+				};
+			};
+			Out.kr(out, drift.(0.4) ++ drift.(0.37) ++ amps ++ rings);
 		}).add;
 
 		// Le filtrage lui-même : chaque côté traverse le banc.
@@ -350,9 +374,10 @@ SculptDefs {
 		SynthDef(\sculpt_ring, { |bus, ctl, wet = 0.5, bypass = 0, gain = 0.0133|
 			var nb = ringBands;
 			var in = In.ar(bus, 2);
-			var p = In.kr(ctl, nb * 3);
+			var p = In.kr(ctl, nb * 4);
 			var out = [0, 1].collect { |c|
-				DynKlank.ar(`[p[0..(nb - 1)], p[nb..((2 * nb) - 1)], p[(2 * nb)..]], in[c]);
+				DynKlank.ar(`[p[(c * nb)..((c * nb) + nb - 1)],
+					p[(2 * nb)..((3 * nb) - 1)], p[(3 * nb)..]], in[c]);
 			} * gain;
 			var w = Lag.kr(wet, 0.05);
 			var mix = Lag.kr(1 - bypass, 0.02);

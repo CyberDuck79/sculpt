@@ -80,9 +80,12 @@ local STAGES = {
     on = "ring_on",
     pages = {
       { "ring_cutoff", "ring_reso" },
-      { "ring_decay", "ring_tilt" },
+      { { "ring_decay", mode = "ring_decay_mode" }, "ring_tilt" },
       { "ring_slope", "ring_tone" },
-      { "ring_pitch", "ring_wet" },
+      { { "ring_pitch", mode = "ring_scale" }, "ring_wet" },
+      { "ring_waves", { "ring_waves_rate", mode = "ring_waves_rate_mode" } },
+      { "ring_noise", { "ring_noise_rate", mode = "ring_noise_rate_mode" } },
+      { "ring_detune", false },
     },
     keys = {
       {
@@ -139,7 +142,7 @@ local STAGES = {
   {
     name = "settings",
     short = "SET",
-    pages = { { "clock_tempo", false } },
+    pages = { { "clock_tempo", "root" } },
     keys = {},
   },
 }
@@ -553,19 +556,33 @@ draw_ring = function()
   local ring = decay * decay * 4
   local bottom = VIZ_MID + VIZ_HALF
 
+  -- la place des bandes suit la gamme ; une bande en double n'est pas dessinée
+  local freqs, weight = parameters.ring_bands()
+  local waves, noise = params:get("ring_waves"), params:get("ring_noise")
+  local now = util.time()
+  local wave_phase = now * parameters.lfo_hz("ring_waves_rate") * 2 * math.pi
+  local noise_hz = parameters.lfo_hz("ring_noise_rate")
+
   for i = 0, RING_BANDS - 1 do
-    local f = 40 * 2 ^ (i * RING_SPAN / (RING_BANDS - 1)) * ratio
+    local f = freqs[i + 1] * ratio
     local x = math.log(f / cutoff, 2)
     local db = (-math.max(x, 0) * hi) + (math.min(x, 0) * lo)
       + (x * tone * 6) + (reso * 18 * math.exp(x * x * -5.5))
     -- de -48 dB en bas à +18 dB en haut
+    -- la vague et le hasard, à l'image de ce que fait l'engine : le hasard
+    -- est ici un mouvement propre à chaque bande, pas le tirage réel
+    local mod = (1 - waves * (0.5 + 0.5 * math.sin(wave_phase - i * 0.5)))
+      * (1 - noise * (0.5 + 0.5 * math.sin(now * noise_hz * (2 + (i * 7 % 5)) + i * 2.4)))
+    db = db + 20 * math.log(math.max(mod, 0.004), 10)
     local h = util.round((2 * VIZ_HALF) * util.clamp((db + 48) / 66, 0, 1))
+    if weight[i + 1] == 0 then h = 0 end
     -- une bande qui sonne longtemps est plus claire
     local r = (ring * 2 ^ (x * tilt * 0.5)) + 0.0015
     local lit = util.clamp(math.log(r / 0.0015, 10) / 3, 0, 1)
     screen.level(on and util.round(3 + 11 * lit) or 1)
     if h > 0 then
-      screen.rect(util.round(i * 127 / (RING_BANDS - 1)), bottom - h, 2, h)
+      local px = math.log(freqs[i + 1] / 40, 2) / RING_SPAN * 127
+      screen.rect(util.clamp(util.round(px), 0, 126), bottom - h, 2, h)
       screen.fill()
     end
   end

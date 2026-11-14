@@ -20,7 +20,7 @@ Engine_Sculpt : CroneEngine {
 	classvar <contourSteps = 9;
 
 	var srcBus, grpSrc, grpFx, grpOut, player, outSynth;
-	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
+	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringFreqs, ringMute, ringWet = 0.5;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var grpVast, vastSynth, vastArgs;
 	var mosaic, mosBufs, mosPat, mosSnap, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
@@ -66,7 +66,7 @@ Engine_Sculpt : CroneEngine {
 		// effet est défait et refait
 		grpMos = Group.tail(grpFx);
 		grpRing = Group.tail(grpFx);
-		ringCtl = Bus.control(s, SculptDefs.ringBands * 3);
+		ringCtl = Bus.control(s, SculptDefs.ringBands * 4);
 		grpDef = Group.tail(grpFx);
 		grpVast = Group.tail(grpFx);
 		vastArgs = IdentityDictionary[
@@ -81,8 +81,12 @@ Engine_Sculpt : CroneEngine {
 		];
 		ringArgs = IdentityDictionary[
 			\cutoff -> 16000, \reso -> 0, \decay -> 0, \pitch -> 0,
-			\slope -> -1, \tone -> 0, \tilt -> 0
+			\slope -> -1, \tone -> 0, \tilt -> 0, \sustain -> 0, \waves -> 0,
+			\wavesRate -> 1, \noise -> 0, \noiseRate -> 1, \detune -> 0
 		];
+		ringFreqs = Array.fill(SculptDefs.ringBands, { |i|
+			40 * (2 ** (i * 8.64 / (SculptDefs.ringBands - 1))) });
+		ringMute = 1 ! SculptDefs.ringBands;
 		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf], grpSrc);
 		// les effets démarrent en bypass, donc en pause
 		mosaic = Synth.newPaused(\sculpt_mosaic, [\bus, srcBus, \bufL, mosBufs[0], \bufR, mosBufs[1],
@@ -131,12 +135,22 @@ Engine_Sculpt : CroneEngine {
 
 		// RING : les réglages sont gardés ici, puisque le synth n'existe pas
 		// tant que l'effet est éteint
-		[\cutoff, \reso, \decay, \pitch, \slope, \tone, \tilt].do { |key|
+		[\cutoff, \reso, \decay, \pitch, \slope, \tone, \tilt, \sustain, \waves,
+			\wavesRate, \noise, \noiseRate, \detune].do { |key|
 			this.addCommand(("ring_" ++ key).asSymbol, "f", { |msg|
 				ringArgs[key] = msg[1];
 				ringShape !? { ringShape.set(key, msg[1]) };
 			});
 		};
+		// la place des 48 bandes et leur poids, d'après la gamme
+		this.addCommand(\ring_freqs, String.fill(SculptDefs.ringBands, $f), { |msg|
+			ringFreqs = msg[1..SculptDefs.ringBands];
+			ringShape !? { ringShape.setn(\freqs, ringFreqs) };
+		});
+		this.addCommand(\ring_mute, String.fill(SculptDefs.ringBands, $f), { |msg|
+			ringMute = msg[1..SculptDefs.ringBands];
+			ringShape !? { ringShape.setn(\mute, ringMute) };
+		});
 		this.addCommand(\ring_wet, "f", { |msg|
 			ringWet = msg[1];
 			ringSynth !? { ringSynth.set(\wet, msg[1]) };
@@ -197,7 +211,8 @@ Engine_Sculpt : CroneEngine {
 		if(on) {
 			if(ringSynth.isNil) {
 				ringShape = Synth(\sculpt_ring_shape,
-					[\out, ringCtl.index] ++ ringArgs.getPairs, grpRing);
+					[\out, ringCtl.index, \freqs, ringFreqs, \mute, ringMute]
+						++ ringArgs.getPairs, grpRing);
 				ringSynth = Synth(\sculpt_ring,
 					[\bus, srcBus, \ctl, ringCtl.index, \wet, ringWet, \bypass, 1],
 					ringShape, \addAfter);
