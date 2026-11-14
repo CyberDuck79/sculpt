@@ -97,9 +97,25 @@ SculptDefs {
 		//   wet      : 0 direct seul .. 1 grains seuls
 		//   lock     : 1 = le buffer n'est plus écrit
 		//   bypass   : 1 = le direct seul (fondu de 20 ms)
-		SynthDef(\sculpt_mosaic, { |bus, bufL, bufR, envBase, envSteps = 9, bypass = 0, lock = 0,
+		// Deuxième lot — tout est tiré une fois par grain, et à part pour
+		// chaque côté sauf la cadence et le motif :
+		//   scanMode 2    : STRETCH, une tête de lecture qui avance à sa vitesse
+		//   sprayMode 1   : WARP, la position ondule au lieu de sauter
+		//   pattern       : le motif de 8 notes est dans patBuf, déjà en
+		//                   demi-tons ; l'argument ne sert qu'au niveau
+		//   randPitch     : mode 0 désaccord (± 1 demi-ton), 1 notes de la
+		//                   gamme (± 1 octave, par snapBuf), 2 libre
+		//   randRate      : écart de la cadence, ± 1,5 octave
+		//   randSize      : raccourcit les grains, jusqu'à 8 fois
+		//   randAmp       : baisse leur niveau, jusqu'au silence
+		//   randRev       : probabilité de lecture à l'envers
+		//   t_sync        : recale la cadence et le motif sur l'instant
+		SynthDef(\sculpt_mosaic, { |bus, bufL, bufR, envBase, envSteps = 9, patBuf, snapBuf,
+			bypass = 0, lock = 0,
 			pitch = 0, rate = 8, size = 0.15, contour = 0, scan = 0.1, scanMode = 0,
-			spray = 0.1, feedback = 0, wet = 0.5|
+			spray = 0.1, sprayMode = 0, feedback = 0, wet = 0.5, pattern = 0,
+			randPitch = 0, randPitchMode = 0, randRate = 0, randSize = 0, randAmp = 0,
+			randRev = 0, t_sync = 0|
 			var in = In.ar(bus, 2);
 			var sr = SampleRate.ir;
 			var frames = BufFrames.kr(bufL);
@@ -107,26 +123,32 @@ SculptDefs {
 			var run = 1 - lock;
 			// la tête d'écriture : avance avec RecordBuf, s'arrête avec lui
 			var wphase = Phasor.ar(0, run, 0, frames);
+			// La tête de lecture de STRETCH : de l'arrêt à deux fois la vitesse
+			// de l'écriture. Elle continue sur un buffer verrouillé.
+			var rphase = Phasor.ar(0, scan * 2, 0, frames);
 			var fb = LocalIn.ar(2);
-			var ratio = pitch.midiratio;
-			// au plus 48 grains à la fois par côté, pour borner le CPU
-			var dur = min(size, 48 / rate);
-			var trig = Impulse.ar(rate);
-			// Un grain lu plus vite que l'écriture la rattraperait : le retard
-			// minimal en tient compte. Le maximal laisse le grain finir avant
-			// que l'écriture, qui a fait le tour, ne le rejoigne.
-			var minD = (dur * max(ratio - 1, 0)) + 0.01;
-			var maxD = bufDur - dur - 0.05;
+			// Au plus 48 grains à la fois par côté, pour borner le CPU. Une
+			// cadence irrégulière les rapproche par moments : on en tient compte.
+			var dur = min(size, 48 / (rate * (1 + (0.2 * randRate))));
+			var sync = T2A.ar(t_sync);
+			var trig = TDuty.ar((2 ** (Dwhite(-1.5, 1.5) * randRate)) / rate, sync);
+			// le motif avance d'une note par grain
+			var patSemi = BufRd.ar(1, patBuf, PulseCount.ar(trig, sync) % 8, 1, 1);
+			// Bornes de SCAN calculées sur le grain moyen : elles servent à
+			// l'étendue de SPRAY et au niveau. Chaque grain a ensuite les
+			// siennes, d'après sa propre hauteur et sa propre taille.
+			var minDk = (dur * max(pitch.midiratio - 1, 0)) + 0.01;
+			var maxDk = bufDur - dur - 0.05;
 			// SPRAY couvre tout ce que le buffer laisse disponible. La course
 			// est élevée au carré : ses premiers degrés valent quelques
 			// millisecondes, de quoi défaire l'addition en phase des grains,
 			// et le haut de la course balaie le buffer entier.
 			var sprayAmt = spray.squared;
-			var scanD = (scan * 3.5).clip(minD, maxD);
+			var scanD = (scan * 3.5).clip(minDk, maxDk);
 			// en delay, l'étendue est ce qui reste derrière le point de scan :
 			// au-delà, les grains s'entasseraient tous sur la borne
-			var spreadDelay = (maxD - scanD) * sprayAmt;
-			var spread = Select.kr(scanMode, [spreadDelay, bufDur * sprayAmt]);
+			var spreadDelay = (maxDk - scanD) * sprayAmt;
+			var spread = Select.kr(scanMode.min(1), [spreadDelay, bufDur * sprayAmt]);
 			var env = envBase + ((contour + 1) * 0.5 * (envSteps - 1)).round;
 			// Les grains se superposent : on ramène le niveau vers celui de
 			// l'entrée. En général leurs ondes se mélangent au hasard, et le
@@ -140,17 +162,46 @@ SculptDefs {
 			// Ce qui décide, c'est l'étendue rapportée à la taille du grain :
 			// des grains dispersés sur bien moins que leur propre durée lisent
 			// presque le même segment et s'additionnent en phase. Le 45 est
-			// mesuré au bruit rose. Un grain transposé se décorrèle tout seul.
-			var inPhase = (1 + (45 * spread / dur)).reciprocal * (1 - pitch.abs).clip(0, 1);
+			// mesuré au bruit rose. Un grain transposé se décorrèle tout seul,
+			// que ce soit par PITCH, par le motif ou par le hasard. En WARP,
+			// les grains voisins lisent presque au même endroit : la
+			// dispersion ne les décorrèle pas.
+			var decor = (1 - (pitch.abs + (pattern * 4) + (randPitch * 4))).clip(0, 1);
+			var inPhase = (1 + (45 * spread * (1 - sprayMode) / dur)).reciprocal * decor;
 			var norm = (((n * 0.375).sqrt * (1 - inPhase)) + (n * 0.5 * inPhase)).max(1).reciprocal;
 			var grains = [bufL, bufR].collect { |b|
-				var d = (scanD + (TRand.ar(0, 1, trig) * spreadDelay)).clip(minD, maxD);
+				// hauteur du grain
+				var rp = TRand.ar(-1, 1, trig);
+				var wide = rp * randPitch * 12;
+				var oct = (wide / 12).floor;
+				var note = (oct * 12) + Index.ar(snapBuf, (wide - (oct * 12)).floor.clip(0, 11));
+				var semi = pitch + patSemi + Select.ar(K2A.ar(randPitchMode),
+					[rp * randPitch.squared, note, wide]);
+				var ratio = semi.midiratio;
+				var rev = TRand.ar(0, 1, trig) < randRev;
+				var gdur = dur * (2 ** (TRand.ar(0, 3, trig).neg * randSize));
+				// niveau du grain : GrainBuf n'a pas de gain par grain, mais il
+				// a un panoramique. On lui demande deux canaux et on n'en garde
+				// qu'un : -1 plein niveau, +1 silence, à puissance constante.
+				var amp = 1 - (TRand.ar(0, 1, trig) * randAmp);
+				var pan = (amp.acos * (4 / pi)) - 1;
+				// Un grain lu plus vite que l'écriture la rattraperait : le
+				// retard minimal en tient compte. Le maximal laisse le grain
+				// finir avant que l'écriture, qui a fait le tour, ne le
+				// rejoigne ; à l'envers, il s'enfonce dans le passé d'autant.
+				var minD = (gdur * max(ratio - 1, 0) * (1 - rev)) + 0.01;
+				var maxD = max(minD, bufDur - (gdur * (1 + (rev * ratio))) - 0.05);
+				// la dispersion : un tirage par grain, ou une ondulation lente
+				var rnd = Select.ar(K2A.ar(sprayMode), [TRand.ar(0, 1, trig),
+					((LFNoise2.ar(0.7) * 0.5) + 0.5).clip(0, 1)]);
+				var d = ((scan * 3.5) + (rnd * spreadDelay)).clip(minD, maxD);
 				var posDelay = ((wphase / sr) - d) / bufDur;
-				// en position, la lecture fait le tour du buffer : à fond,
-				// SPRAY le couvre en entier sans se heurter à une borne
-				var posFixed = scan + (TRand.ar(-0.5, 0.5, trig) * sprayAmt);
-				var pos = Select.ar(K2A.ar(scanMode), [posDelay, posFixed]).wrap(0, 1);
-				GrainBuf.ar(1, trig, dur, b, ratio, pos, 4, 0, env, 64);
+				// en position et en stretch, la lecture fait le tour du buffer :
+				// à fond, SPRAY le couvre en entier sans se heurter à une borne
+				var off = (rnd - 0.5) * sprayAmt;
+				var pos = Select.ar(K2A.ar(scanMode),
+					[posDelay, scan + off, (rphase / frames) + off]).wrap(0, 1);
+				GrainBuf.ar(2, trig, gdur, b, ratio * (1 - (2 * rev)), pos, 4, pan, env, 96)[0];
 			} * norm;
 			var mix = Lag.kr(1 - bypass, 0.02);
 			var w = Lag.kr(wet, 0.05);
@@ -174,7 +225,8 @@ SculptDefs {
 			// qui s'écrit sous elle. 32 messages par seconde, soit une colonne
 			// d'écran par message pour un buffer de 4 s affiché sur 128 px.
 			SendReply.kr(Impulse.kr(32), '/sculpt/mos',
-				[A2K.kr(wphase) / frames, A2K.kr(Amplitude.ar(rec.sum * 0.5, 0.001, 0.02))]);
+				[A2K.kr(wphase) / frames, A2K.kr(Amplitude.ar(rec.sum * 0.5, 0.001, 0.02)),
+					A2K.kr(rphase) / frames]);
 			ReplaceOut.ar(bus, (in * (1 - mix)) + (out * mix));
 		}).add;
 

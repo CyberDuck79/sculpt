@@ -53,10 +53,14 @@ local STAGES = {
     short = "MOS",
     on = "mos_on",
     pages = {
-      { "mos_pitch", "mos_rate" },
-      { "mos_size", "mos_contour" },
-      { { "mos_scan", mode = "mos_scan_mode" }, "mos_spray" },
+      { { "mos_pitch", mode = "mos_scale" }, { "mos_rate", mode = "mos_rate_mode" } },
+      { { "mos_size", mode = "mos_size_mode" }, "mos_contour" },
+      { { "mos_scan", mode = "mos_scan_mode" }, { "mos_spray", mode = "mos_spray_mode" } },
       { "mos_feedback", "mos_wet" },
+      { { "mos_pattern", mode = "mos_pattern_seed" },
+        { "mos_rand_pitch", mode = "mos_rand_pitch_mode" } },
+      { "mos_rand_rate", "mos_rand_size" },
+      { "mos_rand_amp", "mos_rand_rev" },
     },
     keys = {
       {
@@ -169,7 +173,9 @@ function ui.enc(n, d)
   if shift then
     if mode then params:delta(mode, d) end
   elseif id then
-    params:delta(id, d)
+    -- certains réglages avancent par notes ou par divisions (voir params)
+    local custom = parameters.deltas[id]
+    if custom then custom(d) else params:delta(id, d) end
   end
 end
 
@@ -318,7 +324,7 @@ local MOS_SECONDS = 4
 local MOS_FLOOR_DB = -48
 local PX_PER_S = 128 / MOS_SECONDS
 local mos_grains = {}
-local mos_acc, mos_last = 0, nil
+local mos_acc, mos_last, mos_next = 0, nil, 1
 
 -- enveloppe approchée d'un grain, pour sa hauteur à l'écran
 local function grain_env(x, contour)
@@ -583,11 +589,17 @@ end
 draw_mosaic = function()
   local on = params:get("mos_on") == 1
   local locked = params:get("mos_lock") == 1
-  local fixed = params:get("mos_scan_mode") == 2
-  local rate, size = params:get("mos_rate"), params:get("mos_size")
-  local dur = math.min(size, 48 / rate)
-  local ratio = 2 ^ (params:get("mos_pitch") / 12)
-  local scan, spray = params:get("mos_scan"), params:get("mos_spray")
+  local scan_mode = params:get("mos_scan_mode")
+  -- position et stretch : l'axe est le buffer, pas le temps écoulé
+  local fixed = scan_mode >= 3
+  local rate, size = parameters.mos_rate_hz(), parameters.mos_size_seconds()
+  local rand_rate, rand_size = params:get("mos_rand_rate"), params:get("mos_rand_size")
+  local rand_rev = params:get("mos_rand_rev")
+  local dur = math.min(size, 48 / (rate * (1 + 0.2 * rand_rate)))
+  local ratio = 2 ^ (parameters.mos_pitch_semis() / 12)
+  local scan, spray = parameters.mos_scan_value(), params:get("mos_spray")
+  -- en stretch, le point de lecture est la tête que l'engine fait avancer
+  if scan_mode == 4 then scan = state.mos_read end
   local contour = params:get("mos_contour")
   local now = util.time()
   local dt = mos_last and math.min(now - mos_last, 0.5) or 0
@@ -657,13 +669,17 @@ draw_mosaic = function()
   -- les grains : chacun naît dans la zone et suit ce qu'il lit
   if on then
     mos_acc = mos_acc + rate * dt
-    while mos_acc >= 1 do
-      mos_acc = mos_acc - 1
+    while mos_acc >= mos_next do
+      mos_acc = mos_acc - mos_next
+      -- le prochain grain arrive plus ou moins tôt, comme dans l'engine
+      mos_next = 2 ^ ((math.random() * 3 - 1.5) * rand_rate)
       if #mos_grains < 96 then
         table.insert(mos_grains, {
           x = zone_a + math.random() * (zone_b - zone_a),
           y = VIZ_MID + (math.random() * 2 - 1) * (VIZ_HALF - 6),
           born = now,
+          dur = dur * 2 ^ (-3 * math.random() * rand_size),
+          rev = math.random() < rand_rev,
         })
       end
     end
@@ -673,13 +689,16 @@ draw_mosaic = function()
   for i = #mos_grains, 1, -1 do
     local g = mos_grains[i]
     local age = now - g.born
-    if age >= dur then
+    if age >= g.dur then
       table.remove(mos_grains, i)
     else
+      local dur = g.dur
       -- en mode delay, un grain à vitesse normale reste à la même distance
       -- de « maintenant » ; plus rapide, il s'en rapproche. En mode position,
       -- il avance dans le buffer à sa vitesse de lecture.
       local speed = fixed and ratio or (ratio - 1)
+      -- à l'envers, il remonte le buffer
+      if g.rev then speed = fixed and -ratio or (-ratio - 1) end
       local x = (g.x + speed * age * PX_PER_S) % 128
       local h = math.max(1, util.round(5 * grain_env(age / dur, contour)))
       screen.level(util.round(3 + 12 * grain_env(age / dur, contour)))

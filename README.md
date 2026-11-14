@@ -2,7 +2,7 @@
 
 A sculpting sampler for [norns](https://monome.org/docs/norns/): a sound source that runs through a chain of texture effects. It is inspired by the Torso S4, and played with the norns alone.
 
-**Work in progress.** Today sculpt has a sample player and the four effects. MOSAIC and RING have their first eight settings; the rest is on its way.
+**Work in progress.** Today sculpt has a sample player and the four effects. RING has its first eight settings; the rest is on its way.
 
 ## Where it is going
 
@@ -15,7 +15,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 | Stage | What it does | State |
 |---|---|---|
 | source | sample player, later a looper | sample player done |
-| MOSAIC | granular | first 8 settings done |
+| MOSAIC | granular | 14 settings done |
 | RING | bank of resonant filters | first 8 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
 | VAST | delay and reverb | all 8 settings done |
@@ -67,15 +67,28 @@ MOSAIC records the last 4 seconds of what it receives, and plays short grains fr
 
 | Page | E2 | E3 |
 |---|---|---|
-| 1 | **Pitch** of the grains, in semitones | **Rate**: grains per second |
-| 2 | **Size**: length of a grain | **Contour**: shape of a grain, from a sharp attack that fades (-100%), through a bell (0%), to a rise (+100%) |
-| 3 | **Scan**: where the grains read | **Spray**: scatters that position at random, up to the whole buffer, and widens the stereo |
+| 1 | **Pitch** of the grains, on the notes of a scale | **Rate**: grains per second, or a division of the tempo |
+| 2 | **Size**: length of a grain, in time or as a division of the tempo | **Contour**: shape of a grain, from a sharp attack that fades (-100%), through a bell (0%), to a rise (+100%) |
+| 3 | **Scan**: where the grains read | **Spray**: moves that position around, up to the whole buffer, and widens the stereo |
 | 4 | **Feedback**: sends the grains back into the buffer | **Wet**: dry / effect balance |
+| 5 | **Pattern**: a fixed melody of 8 notes, one per grain; the setting is how far it reaches (up to an octave each way) | **Rnd pitch**: a random pitch for each grain |
+| 6 | **Rnd rate**: makes the grains irregular instead of a steady pulse | **Rnd size**: shortens some grains, down to an eighth |
+| 7 | **Rnd amp**: lowers the level of some grains, down to silence | **Rnd rev**: the chance that a grain plays backwards |
 
-**Scan** has two modes, chosen with **K1 held + E2**:
+Several settings have modes, chosen with **K1 held** and their encoder:
 
-- `delay`: the grains read behind the input, up to 3.5 s back;
-- `position`: the grains read at a fixed point of the buffer. This is most useful with the buffer locked.
+| Setting | Modes |
+|---|---|
+| Pitch | the scale: the 19 scales of the S4, from `chromatic` to `octaves`, or `free` for no scale at all. Each click of the encoder goes to the next note of the scale. The pattern and the random notes follow the same scale. |
+| Rate | `free`, in grains per second, or `sync`, from 4 bars down to 1/64. In `sync` the grains restart on the next bar. |
+| Size | `free`, in milliseconds, or `sync`, from 1/64 to a whole bar (2 seconds at most) |
+| Scan | `delay`: the grains read behind the input, up to 3.5 s back. `sync`: the same, in divisions of the tempo. `position`: a fixed point of the buffer, most useful with the buffer locked. `stretch`: a read head that moves at its own speed, from standing still to twice the speed of the input (100% keeps pace with it) |
+| Spray | `random`: a new position for each grain. `warp`: the position drifts smoothly |
+| Pattern | which of the 32 patterns |
+| Rnd pitch | `detune`: up to a semitone, to thicken. `random`: notes of the scale, up to an octave each way |
+
+The scales are intervals from the sound that comes in, not absolute notes, so there
+is no root note to choose.
 
 On the screen, the line is the 4-second buffer and the bright bar is where the input is being written. The grey zone is where grains are born, and the short bars are grains. They are drawn from the settings, not read back from the engine.
 

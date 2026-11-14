@@ -23,7 +23,7 @@ Engine_Sculpt : CroneEngine {
 	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringWet = 0.5;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var grpVast, vastSynth, vastArgs;
-	var mosaic, mosBufs, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
+	var mosaic, mosBufs, mosPat, mosSnap, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
@@ -48,7 +48,12 @@ Engine_Sculpt : CroneEngine {
 		// MOSAIC : un buffer mono par côté (GrainBuf ne lit que du mono)
 		mosBufs = 2.collect { Buffer.alloc(s, (s.sampleRate * mosSeconds).asInteger, 1) };
 		envBufs = Buffer.allocConsecutive(contourSteps, s, 1024, 1);
+		// le motif de PATTERN (8 notes) et la gamme de RAND PITCH (12 demi-tons)
+		mosPat = Buffer.alloc(s, 8, 1);
+		mosSnap = Buffer.alloc(s, 12, 1);
 		s.sync;
+		mosPat.setn(0, 0 ! 8);
+		mosSnap.setn(0, (0..11));
 		envBufs.do { |b, i|
 			b.setn(0, this.contourEnv((i / (contourSteps - 1) * 2) - 1, 1024));
 		};
@@ -81,12 +86,13 @@ Engine_Sculpt : CroneEngine {
 		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf], grpSrc);
 		// les effets démarrent en bypass, donc en pause
 		mosaic = Synth.newPaused(\sculpt_mosaic, [\bus, srcBus, \bufL, mosBufs[0], \bufR, mosBufs[1],
-			\envBase, envBufs[0].bufnum, \envSteps, contourSteps, \bypass, 1], grpMos);
+			\envBase, envBufs[0].bufnum, \envSteps, contourSteps,
+			\patBuf, mosPat, \snapBuf, mosSnap, \bypass, 1], grpMos);
 		outSynth = Synth(\sculpt_out, [\in, srcBus, \out, context.out_b.index], grpOut);
 
 		// La tête d'écriture de MOSAIC (0..1) et le niveau écrit, relayés à
 		// Lua tels quels : un poll les lisserait et en perdrait en route.
-		mosFunc = OSCFunc({ |msg| lua.sendMsg("/sculpt/mos", msg[3], msg[4]) }, '/sculpt/mos');
+		mosFunc = OSCFunc({ |msg| lua.sendMsg("/sculpt/mos", msg[3], msg[4], msg[5]) }, '/sculpt/mos');
 
 		posFunc = OSCFunc({ |msg| pos = msg[3] }, '/sculpt/pos');
 		this.addPoll(\play_pos, { pos });
@@ -104,11 +110,22 @@ Engine_Sculpt : CroneEngine {
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
 
 		// MOSAIC : une commande par réglage, du même nom que l'argument du synth
-		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet].do { |key|
+		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet, \pattern,
+			\randPitch, \randRate, \randSize, \randAmp, \randRev].do { |key|
 			this.addCommand(("mos_" ++ key).asSymbol, "f", { |msg| mosaic.set(key, msg[1]) });
 		};
-		// 0 : retard (DELAY FREE), 1 : position fixe
+		// 0 : retard, 1 : position fixe, 2 : stretch
 		this.addCommand(\mos_scan_mode, "i", { |msg| mosaic.set(\scanMode, msg[1]) });
+		// 0 : tirage par grain, 1 : ondulation
+		this.addCommand(\mos_spray_mode, "i", { |msg| mosaic.set(\sprayMode, msg[1]) });
+		// 0 : désaccord, 1 : notes de la gamme, 2 : libre
+		this.addCommand(\mos_rand_pitch_mode, "i", { |msg| mosaic.set(\randPitchMode, msg[1]) });
+		// les 8 notes du motif, en demi-tons
+		this.addCommand(\mos_pat, "ffffffff", { |msg| mosPat.setn(0, msg[1..8]) });
+		// la gamme : pour chaque demi-ton de l'octave, la note juste en dessous
+		this.addCommand(\mos_snap, "ffffffffffff", { |msg| mosSnap.setn(0, msg[1..12]) });
+		// recale la cadence et le motif sur l'instant
+		this.addCommand(\mos_sync, "i", { |msg| mosaic.set(\t_sync, 1) });
 		this.addCommand(\mos_lock, "i", { |msg| mosLocked = msg[1] > 0; mosaic.set(\lock, msg[1]) });
 		this.addCommand(\mos_bypass, "i", { |msg| this.setBypass(msg[1] > 0) });
 
@@ -316,6 +333,7 @@ Engine_Sculpt : CroneEngine {
 		ringCtl.free;
 		[srcBus, buf].do(_.free);
 		mosBufs.do(_.free);
+		[mosPat, mosSnap].do(_.free);
 		envBufs.do(_.free);
 	}
 }

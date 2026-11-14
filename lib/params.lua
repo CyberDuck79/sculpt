@@ -4,6 +4,8 @@
 -- Nombres, contrôles et interrupteurs plutôt que listes quand c'est
 -- possible : matrix ne module pas les listes.
 
+local scales = include("lib/scales")
+
 local parameters = {}
 
 -- ce que le script partage avec nous (voir sculpt.lua)
@@ -48,6 +50,156 @@ end
 -- retard maximal de SCAN en mode delay (même valeur dans l'engine)
 parameters.MOS_SCAN_SECONDS = 3.5
 
+-- Les divisions du tempo, en temps (une mesure = 4 temps). RATE va de 4
+-- mesures à 1/64 comme sur le S4 ; SIZE et le retard de SCAN s'arrêtent là
+-- où le buffer de 4 s ne suit plus.
+local DIVS = {
+  rate = {
+    { "4/1", 16 }, { "2/1", 8 }, { "1/1", 4 }, { "1/2", 2 }, { "1/4", 1 },
+    { "1/8", 1 / 2 }, { "1/16", 1 / 4 }, { "1/32", 1 / 8 }, { "1/64", 1 / 16 },
+  },
+  size = {
+    { "1/64", 1 / 16 }, { "1/32", 1 / 8 }, { "1/16", 1 / 4 }, { "1/8", 1 / 2 },
+    { "1/4", 1 }, { "1/2", 2 }, { "1/1", 4 },
+  },
+  scan = {
+    { "1/32", 1 / 8 }, { "1/16", 1 / 4 }, { "1/8", 1 / 2 }, { "1/4", 1 },
+    { "1/2", 2 }, { "1/1", 4 },
+  },
+}
+
+-- la division que désigne un réglage, d'après sa position dans sa course
+local function div_index(id, list)
+  local raw = params:lookup_param(id):get_raw()
+  return util.clamp(util.round(raw * (#list - 1)) + 1, 1, #list)
+end
+
+local function beat_seconds()
+  return 60 / params:get("clock_tempo")
+end
+
+-- un réglage calé avance d'une division par cran
+local function div_delta(id, list, d)
+  local p = params:lookup_param(id)
+  local i = util.clamp(div_index(id, list) + d, 1, #list)
+  p:set_raw((i - 1) / (#list - 1))
+end
+
+local function rate_synced() return params:get("mos_rate_mode") == 2 end
+local function size_synced() return params:get("mos_size_mode") == 2 end
+local function scan_mode() return params:get("mos_scan_mode") end
+
+-- grains par seconde
+function parameters.mos_rate_hz()
+  if not rate_synced() then return params:get("mos_rate") end
+  local beats = DIVS.rate[div_index("mos_rate", DIVS.rate)][2]
+  return util.clamp(1 / (beats * beat_seconds()), 0.02, 64)
+end
+
+-- durée d'un grain, en secondes
+function parameters.mos_size_seconds()
+  if not size_synced() then return params:get("mos_size") end
+  local beats = DIVS.size[div_index("mos_size", DIVS.size)][2]
+  return util.clamp(beats * beat_seconds(), 0.005, 2)
+end
+
+-- SCAN tel que l'engine l'attend : 0..1. En delay c'est une part du retard
+-- maximal, en position un point du buffer, en stretch la moitié de la vitesse.
+function parameters.mos_scan_value()
+  if scan_mode() ~= 2 then return params:get("mos_scan") end
+  local beats = DIVS.scan[div_index("mos_scan", DIVS.scan)][2]
+  return util.clamp(beats * beat_seconds() / parameters.MOS_SCAN_SECONDS, 0, 1)
+end
+
+-- la hauteur réellement jouée : calée sur la gamme
+function parameters.mos_pitch_semis()
+  return scales.snap(params:get("mos_scale"), params:get("mos_pitch"))
+end
+
+-- Le motif de PATTERN : 8 nombres entre -1 et 1, toujours les mêmes pour un
+-- numéro de motif donné. Le premier est 0 : le motif part de la hauteur de
+-- PITCH. Un générateur à part, pour ne pas dépendre de math.random.
+function parameters.mos_pattern_shape()
+  local x = params:get("mos_pattern_seed") * 7919
+  local out = { 0 }
+  for k = 2, 8 do
+    x = (x * 1103515245 + 12345) % 2147483648
+    out[k] = (x / 1073741824) - 1
+  end
+  return out
+end
+
+-- les 8 notes du motif, en demi-tons : jusqu'à une octave de part et d'autre
+function parameters.mos_pattern_semis()
+  local scale, amount = params:get("mos_scale"), params:get("mos_pattern")
+  local out = {}
+  for k, r in ipairs(parameters.mos_pattern_shape()) do
+    out[k] = scales.snap(scale, r * amount * 12)
+  end
+  return out
+end
+
+local function send_pattern()
+  engine.mos_pat(table.unpack(parameters.mos_pattern_semis()))
+  engine.mos_pattern(params:get("mos_pattern"))
+end
+
+local function send_rand_pitch_mode()
+  local mode = params:get("mos_rand_pitch_mode")
+  -- sans gamme, les notes au hasard sont libres
+  if mode == 2 and scales.is_free(params:get("mos_scale")) then mode = 3 end
+  engine.mos_rand_pitch_mode(mode - 1)
+end
+
+-- Recale la cadence des grains sur la prochaine mesure. L'engine garde
+-- ensuite le pas tout seul : son horloge et celle de norns ne dérivent que
+-- de quelques millisecondes sur plusieurs minutes.
+local resync
+local function mos_resync()
+  if resync then clock.cancel(resync) end
+  resync = clock.run(function()
+    clock.sync(4)
+    resync = nil
+    if rate_synced() then engine.mos_sync(1) end
+  end)
+end
+
+local function send_rate()
+  engine.mos_rate(parameters.mos_rate_hz())
+  if rate_synced() then mos_resync() end
+end
+local function send_size() engine.mos_size(parameters.mos_size_seconds()) end
+local function send_scan() engine.mos_scan(parameters.mos_scan_value()) end
+
+-- le tempo a changé : ce qui est calé dessus suit
+function parameters.mos_tempo_changed()
+  if rate_synced() then send_rate() end
+  if size_synced() then send_size() end
+  if scan_mode() == 2 then send_scan() end
+end
+
+-- Les réglages dont un cran d'encodeur n'est pas un centième de course :
+-- PITCH saute de note en note, un réglage calé de division en division.
+parameters.deltas = {
+  mos_pitch = function(d)
+    local scale = params:get("mos_scale")
+    if scales.is_free(scale) then
+      params:set("mos_pitch", params:get("mos_pitch") + d * 0.1)
+    else
+      params:set("mos_pitch", scales.step(scale, params:get("mos_pitch"), d, -24, 24))
+    end
+  end,
+  mos_rate = function(d)
+    if rate_synced() then div_delta("mos_rate", DIVS.rate, d) else params:delta("mos_rate", d) end
+  end,
+  mos_size = function(d)
+    if size_synced() then div_delta("mos_size", DIVS.size, d) else params:delta("mos_size", d) end
+  end,
+  mos_scan = function(d)
+    if scan_mode() == 2 then div_delta("mos_scan", DIVS.scan, d) else params:delta("mos_scan", d) end
+  end,
+}
+
 -- MOSAIC : granulaire sur les 4 dernières secondes du flux
 function parameters.add_mosaic()
   params:add_separator("mosaic_sep", "mosaic")
@@ -66,20 +218,38 @@ function parameters.add_mosaic()
   params:add_binary("mos_lock", "lock", "toggle", 0)
   params:set_action("mos_lock", function() engine.mos_lock(params:get("mos_lock")) end)
 
-  params:add_number("mos_pitch", "pitch", -24, 24, 0, function(p)
-    local v = p:get()
-    return (v > 0 and "+" or "") .. v .. " st"
+  -- La gamme de MOSAIC : PITCH, le motif et les notes au hasard s'y calent.
+  -- Ce sont des intervalles par rapport au son qui entre, pas des notes
+  -- absolues : il n'y a pas de tonique à choisir.
+  params:add_option("mos_scale", "scale", scales.NAMES, 1)
+  params:set_action("mos_scale", function(i)
+    engine.mos_pitch(parameters.mos_pitch_semis())
+    engine.mos_snap(table.unpack(scales.classes(i)))
+    send_pattern()
+    send_rand_pitch_mode()
   end)
-  params:set_action("mos_pitch", function(x) engine.mos_pitch(x) end)
+  params:add_control("mos_pitch", "pitch", controlspec.new(-24, 24, "lin", 0, 0), function()
+    local v = parameters.mos_pitch_semis()
+    local text = v == math.floor(v) and string.format("%d", v) or string.format("%.1f", v)
+    return (v > 0 and "+" or "") .. text .. " st"
+  end)
+  params:set_action("mos_pitch", function() engine.mos_pitch(parameters.mos_pitch_semis()) end)
+
+  params:add_option("mos_rate_mode", "rate mode", { "free", "sync" }, 1)
+  params:set_action("mos_rate_mode", send_rate)
   params:add_control("mos_rate", "rate", controlspec.new(0.25, 64, "exp", 0, 8), function(p)
+    if rate_synced() then return DIVS.rate[div_index("mos_rate", DIVS.rate)][1] end
     return string.format(p:get() < 10 and "%.1f hz" or "%.0f hz", p:get())
   end)
-  params:set_action("mos_rate", function(x) engine.mos_rate(x) end)
+  params:set_action("mos_rate", send_rate)
 
+  params:add_option("mos_size_mode", "size mode", { "free", "sync" }, 1)
+  params:set_action("mos_size_mode", send_size)
   params:add_control("mos_size", "size", controlspec.new(0.005, 1, "exp", 0, 0.15), function(p)
+    if size_synced() then return DIVS.size[div_index("mos_size", DIVS.size)][1] end
     return seconds(p:get())
   end)
-  params:set_action("mos_size", function(x) engine.mos_size(x) end)
+  params:set_action("mos_size", send_size)
   -- Forme du grain : au centre une cloche, vers le bas une attaque franche
   -- qui s'éteint, vers le haut une montée. Affiché en pourcentage signé,
   -- comme sur le S4 : les mots ne tiennent pas à côté du nom du réglage.
@@ -89,16 +259,24 @@ function parameters.add_mosaic()
   end)
   params:set_action("mos_contour", function(x) engine.mos_contour(x) end)
 
-  -- où les grains lisent : un retard derrière l'écriture, ou un point fixe
-  params:add_option("mos_scan_mode", "scan mode", { "delay", "position" }, 1)
-  params:set_action("mos_scan_mode", function(i) engine.mos_scan_mode(i - 1) end)
+  -- Où les grains lisent : un retard derrière l'écriture (en secondes ou
+  -- calé sur le tempo), un point fixe, ou une tête qui avance à sa vitesse.
+  params:add_option("mos_scan_mode", "scan mode", { "delay", "sync", "position", "stretch" }, 1)
+  params:set_action("mos_scan_mode", function(i)
+    engine.mos_scan_mode(({ 0, 0, 1, 2 })[i])
+    send_scan()
+  end)
   params:add_control("mos_scan", "scan", controlspec.new(0, 1, "lin", 0, 0.1), function(p)
-    if params:get("mos_scan_mode") == 1 then
-      return seconds(p:get() * parameters.MOS_SCAN_SECONDS)
-    end
+    local mode = scan_mode()
+    if mode == 1 then return seconds(p:get() * parameters.MOS_SCAN_SECONDS) end
+    if mode == 2 then return DIVS.scan[div_index("mos_scan", DIVS.scan)][1] end
+    -- stretch : la vitesse de la lecture par rapport à l'écriture
+    if mode == 4 then return util.round(p:get() * 200) .. "%" end
     return pct(p)
   end)
-  params:set_action("mos_scan", function(x) engine.mos_scan(x) end)
+  params:set_action("mos_scan", send_scan)
+  params:add_option("mos_spray_mode", "spray mode", { "random", "warp" }, 1)
+  params:set_action("mos_spray_mode", function(i) engine.mos_spray_mode(i - 1) end)
   params:add_control("mos_spray", "spray", controlspec.new(0, 1, "lin", 0, 0.1), pct)
   params:set_action("mos_spray", function(x) engine.mos_spray(x) end)
 
@@ -106,6 +284,25 @@ function parameters.add_mosaic()
   params:set_action("mos_feedback", function(x) engine.mos_feedback(x) end)
   params:add_control("mos_wet", "wet", controlspec.new(0, 1, "lin", 0, 0.5), pct)
   params:set_action("mos_wet", function(x) engine.mos_wet(x) end)
+
+  -- PATTERN : un motif fixe de 8 notes, une par grain. Le réglage dose son
+  -- étendue, le numéro choisit le motif.
+  params:add_number("mos_pattern_seed", "pattern number", 1, 32, 1)
+  params:set_action("mos_pattern_seed", send_pattern)
+  params:add_control("mos_pattern", "pattern", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("mos_pattern", send_pattern)
+
+  -- le hasard, tiré pour chaque grain
+  params:add_option("mos_rand_pitch_mode", "rnd pitch mode", { "detune", "random" }, 1)
+  params:set_action("mos_rand_pitch_mode", send_rand_pitch_mode)
+  for _, r in ipairs {
+    { "pitch", "randPitch" }, { "rate", "randRate" }, { "size", "randSize" },
+    { "amp", "randAmp" }, { "rev", "randRev" },
+  } do
+    local id = "mos_rand_" .. r[1]
+    params:add_control(id, "rnd " .. r[1], controlspec.new(0, 1, "lin", 0, 0), pct)
+    params:set_action(id, function(x) engine["mos_" .. r[2]](x) end)
+  end
 end
 
 -- pourcentage signé, comme contour : les mots ne tiennent pas à côté du nom

@@ -25,6 +25,7 @@ local state = {
   loading = false, -- un chargement est en cours
   failed = false,  -- le dernier chargement a échoué
   mos_phase = 0,   -- tête d'écriture de MOSAIC dans son buffer, 0..1
+  mos_read = 0,    -- sa tête de lecture en mode stretch, 0..1
   mos_env = {},    -- niveau écrit dans le buffer de MOSAIC, une case par colonne
   mos_col = nil,   -- dernière colonne écrite
 }
@@ -46,8 +47,9 @@ local redraw_loop
 -- et quel niveau passe sous elle. On range ce niveau dans la colonne que la
 -- tête occupe : l'écran garde ainsi l'image de ce que contient le buffer.
 -- Tant que la tête ne bouge pas (buffer verrouillé), rien n'est réécrit.
-local function mosaic_wrote(phase, peak)
+local function mosaic_wrote(phase, peak, read)
   state.mos_phase = phase
+  state.mos_read = read or 0
   local col = math.floor(phase * MOS_COLS) % MOS_COLS
   local last = state.mos_col
   if last == col then return end
@@ -68,7 +70,7 @@ function init()
 
   -- réponse de l'engine à un chargement : durée (0 = échec), puis les crêtes
   osc.event = function(path, args)
-    if path == "/sculpt/mos" then return mosaic_wrote(args[1], args[2]) end
+    if path == "/sculpt/mos" then return mosaic_wrote(args[1], args[2], args[3]) end
     if path ~= "/sculpt/loaded" then return end
     state.loading = false
     state.seconds = args[1]
@@ -95,6 +97,7 @@ function init()
       if params:get("clock_tempo") ~= tempo then
         tempo = params:get("clock_tempo")
         if params:get("vast_time_mode") > 1 then params:bang("vast_time") end
+        parameters.mos_tempo_changed()
       end
       redraw()
     end
