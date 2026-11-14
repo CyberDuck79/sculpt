@@ -337,72 +337,119 @@ local function env_height(v)
   return math.max(1, util.round((VIZ_HALF - 2) * (1 - (db / MOS_FLOOR_DB))))
 end
 
--- VAST : les échos du delay sur deux secondes, et par-dessus la queue de
--- la réverbe. Les deux sont dessinés d'après les réglages, pas lus dans
--- l'engine : ce qui compte est de voir où tombent les répétitions et
--- combien de temps la queue tient.
-local VAST_SECONDS = 2
+-- VAST : l'écran coupé en deux, comme sur le S4. À gauche le delay, des
+-- cercles qui s'enfoncent vers le centre ; à droite la réverbe, une salle
+-- vue de trois quarts et le niveau qui la remplit. Les deux sont dessinés
+-- d'après les réglages, pas lus dans l'engine.
+local VAST_R = 18
+
+-- un demi-cercle : côté -1 à gauche, +1 à droite
+local function half_ring(cx, r, side, level)
+  if level < 1 or r < 0.5 then return end
+  screen.level(math.min(15, util.round(level)))
+  if side < 0 then
+    screen.arc(cx, VIZ_MID, r, math.pi / 2, math.pi * 3 / 2)
+  else
+    screen.arc(cx, VIZ_MID, r, -math.pi / 2, math.pi / 2)
+  end
+  screen.stroke()
+end
+
+-- Le delay. Le grand cercle est le son qui entre ; chaque répétition est
+-- un cercle plus petit et plus sombre. TIME fixe l'écart entre deux
+-- cercles, FEEDBACK la vitesse à laquelle ils s'éteignent, DELAY leur
+-- éclat. SPREAD sépare les deux moitiés, gauche et droite, chacune à sa
+-- façon selon le mode.
+local function draw_vast_delay(cx, on, frozen)
+  local t = parameters.vast_time_seconds()
+  local fb = frozen and 1 or params:get("vast_feedback")
+  local dly = params:get("vast_dly")
+  local sp = params:get("vast_spread")
+  local mode = params:get("vast_spread_mode")
+  -- l'écart suit le temps sur une échelle logarithmique : 10 ms à 2 s
+  local gap = 2 + 5 * (math.log(t / 0.01) / math.log(200))
+  local base = (dly > 0 and (5 + 10 * dly) or 3) * (on and 1 or 0.3)
+  -- décalage : la voie droite est plus longue, ses cercles tombent plus loin
+  local gap_r = gap * (1 + (mode == 1 and sp * 0.4 or 0))
+
+  half_ring(cx, VAST_R, -1, base)
+  half_ring(cx, VAST_R, 1, base)
+  for k = 1, 16 do
+    local lvl = base * (fb ^ k)
+    if frozen then lvl = base * 0.6 end
+    if lvl < 1 then break end
+    local rl, rr = VAST_R - k * gap, VAST_R - k * gap_r
+    if rl < 1 and rr < 1 then break end
+    local ll, lr = lvl, lvl
+    -- ping-pong : les répétitions alternent d'un côté à l'autre
+    if mode == 2 then
+      if k % 2 == 1 then lr = lvl * (1 - sp) else ll = lvl * (1 - sp) end
+    end
+    -- diffus : chaque répétition s'étale, un second trait la double
+    if mode == 3 and sp > 0 then
+      half_ring(cx, rl + 1, -1, ll * sp * 0.6)
+      half_ring(cx, rr + 1, 1, lr * sp * 0.6)
+    end
+    half_ring(cx, rl, -1, ll)
+    half_ring(cx, rr, 1, lr)
+  end
+end
+
+-- La réverbe. SIZE agrandit la salle, DECAY monte le niveau qui la
+-- remplit, REVERB l'éclaire. Gelée, la salle est pleine.
+local function draw_vast_reverb(cx, on, frozen)
+  local size, rev = params:get("vast_size"), params:get("vast_rev")
+  local decay = frozen and 1 or params:get("vast_decay")
+  local dim = on and 1 or 0.3
+  -- demi-côté du sol et hauteur ; à l'écran une unité de sol vaut 2 pixels
+  -- en largeur et 1 en hauteur
+  local s = util.round(6 + 6 * size)
+  local h = util.round(s * 0.85)
+  local top = VIZ_MID - util.round(h / 2)
+
+  local function diamond(y)
+    screen.move(cx, y - s)
+    screen.line(cx + 2 * s, y)
+    screen.line(cx, y + s)
+    screen.line(cx - 2 * s, y)
+    screen.close()
+  end
+  local function seg(x1, y1, x2, y2)
+    screen.move(x1, y1)
+    screen.line(x2, y2)
+    screen.stroke()
+  end
+
+  -- le niveau
+  local py = top + util.round(h * (1 - decay))
+  local fill = (rev > 0 and (2 + 4 * rev) or 1) * dim
+  if frozen then fill = fill + 2 end
+  screen.level(math.max(1, util.round(fill)))
+  diamond(py)
+  screen.fill()
+
+  -- les trois arêtes du fond, vues à travers
+  screen.level(math.max(1, util.round((fill + 2) * (on and 1 or 0.6))))
+  seg(cx, top - s, cx, top + h - s)
+  seg(cx, top + h - s, cx + 2 * s, top + h)
+  seg(cx, top + h - s, cx - 2 * s, top + h)
+
+  -- le reste de la salle
+  screen.level(util.round(13 * dim))
+  diamond(top)
+  screen.stroke()
+  seg(cx - 2 * s, top, cx - 2 * s, top + h)
+  seg(cx + 2 * s, top, cx + 2 * s, top + h)
+  seg(cx, top + s, cx, top + h + s)
+  seg(cx - 2 * s, top + h, cx, top + h + s)
+  seg(cx + 2 * s, top + h, cx, top + h + s)
+end
 
 draw_vast = function()
   local on = params:get("vast_on") == 1
   local frozen = params:get("vast_freeze") == 1
-  local t = parameters.vast_time_seconds()
-  local fb = params:get("vast_feedback")
-  local dly, rev = params:get("vast_dly"), params:get("vast_rev")
-  local decay, size = params:get("vast_decay"), params:get("vast_size")
-  local bottom = VIZ_MID + VIZ_HALF
-  local px = 128 / VAST_SECONDS
-
-  -- la queue de la réverbe : une nappe qui s'éteint
-  if rev > 0 then
-    -- le gain de boucle et la longueur des lignes donnent le temps de chute
-    local loop = 0.2 + (decay * 0.73)
-    local line = 0.015 + (size * 0.04)
-    local t60 = frozen and 99 or (line * 3 / math.max(0.001, -math.log(loop, 10)))
-    for x = 0, 127 do
-      local age = x / px
-      local a = frozen and 1 or math.max(0, 1 - (age / math.max(0.05, t60)))
-      local h = util.round(VIZ_HALF * 0.75 * a * rev)
-      if h > 0 then
-        screen.level(on and 2 or 1)
-        screen.rect(x, bottom - h, 1, h)
-        screen.fill()
-      end
-    end
-  end
-
-  -- les répétitions du delay
-  if dly > 0 then
-    local k, amp = 1, 1
-    while k <= 24 do
-      local x = (t * k) * px
-      if x > 127 then break end
-      amp = amp * (frozen and 1 or fb)
-      local h = math.max(1, util.round(2 * VIZ_HALF * 0.9 * amp * dly))
-      screen.level(on and (frozen and 8 or 12) or 2)
-      screen.rect(util.round(x), bottom - h, 1, h)
-      screen.fill()
-      if amp < 0.02 then break end
-      k = k + 1
-    end
-  end
-
-  -- l'entrée, à gauche
-  screen.level(on and 15 or 3)
-  screen.rect(0, VIZ_TOP + 2, 1, 2 * VIZ_HALF - 2)
-  screen.fill()
-
-  if frozen then
-    screen.level(0)
-    screen.rect(44, VIZ_MID - 5, 40, 9)
-    screen.fill()
-    centered("frozen", 5)
-  elseif not on then
-    screen.level(0)
-    screen.rect(52, VIZ_MID - 5, 24, 9)
-    screen.fill()
-    centered("off", 5)
-  end
+  draw_vast_delay(31, on, frozen)
+  draw_vast_reverb(96, on, frozen)
 end
 
 -- DEFORM : la courbe qui dit ce que devient chaque niveau d'entrée. On y
