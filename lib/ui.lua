@@ -356,8 +356,8 @@ local VAST_R = 18
 
 -- un demi-cercle : côté -1 à gauche, +1 à droite
 local function half_ring(cx, r, side, level)
-  if level < 1 or r < 0.5 then return end
-  screen.level(math.min(15, util.round(level)))
+  if level <= 0 or r < 0.5 then return end
+  screen.level(util.clamp(util.round(level), 1, 15))
   -- on se place d'abord au départ de l'arc : sinon il est relié par un
   -- trait au dernier point laissé par ce qui a été dessiné avant
   if side < 0 then
@@ -383,16 +383,20 @@ local function draw_vast_delay(cx, on, frozen)
   local mode = params:get("vast_spread_mode")
   -- l'écart suit le temps sur une échelle logarithmique : 10 ms à 2 s
   local gap = 2 + 5 * (math.log(t / 0.01) / math.log(200))
-  local base = (dly > 0 and (5 + 10 * dly) or 3) * (on and 1 or 0.3)
+  -- L'éclat suit DELAY et s'assombrit quand l'étage est éteint. Il ne
+  -- décide pas du nombre de cercles : celui-ci ne dépend que de TIME et de
+  -- FEEDBACK, pour que l'image garde la même forme allumée ou éteinte.
+  local base = (4 + 11 * dly) * (on and 1 or 0.3)
   -- décalage : la voie droite est plus longue, ses cercles tombent plus loin
   local gap_r = gap * (1 + (mode == 1 and sp * 0.4 or 0))
 
   half_ring(cx, VAST_R, -1, base)
   half_ring(cx, VAST_R, 1, base)
   for k = 1, 16 do
-    local lvl = base * (fb ^ k)
-    if frozen then lvl = base * 0.6 end
-    if lvl < 1 then break end
+    -- une répétition tombée sous un quinzième n'est plus dessinée
+    local fade = frozen and 0.6 or (fb ^ k)
+    if fade < 1 / 15 then break end
+    local lvl = base * fade
     local rl, rr = VAST_R - k * gap, VAST_R - k * gap_r
     if rl < 1 and rr < 1 then break end
     local ll, lr = lvl, lvl
