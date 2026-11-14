@@ -208,7 +208,7 @@ seen from above. **Size** makes it larger, **Decay** raises the plate that fills
 - **Middle:** a view of the stage. For the source: the waveform of the sample, the playhead and the time.
 - **Bottom:** the two settings of the page.
 
-While K1 is held, the top line shows the whole chain, with the current stage bright and an effect that is switched off in lower case. A setting that has modes shows its mode.
+While K1 is held, the left of the top line shows three stages of the chain: the previous one, the current one in bright, and the next one. The chain scrolls under the current stage as E1 turns, with an arrow on a side when it goes on, and an effect that is switched off is in lower case. The right of the line shows what **K2** and **K3** do while K1 is held, when they do something. A setting that has modes shows its mode.
 
 ## License
 

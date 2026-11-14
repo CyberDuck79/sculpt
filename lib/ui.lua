@@ -135,7 +135,10 @@ local STAGES = {
     },
     -- K1 maintenu + K3 : vider les deux boucles
     shift_keys = {
-      [2] = { press = function() engine.vast_clear(1) end },
+      [2] = {
+        label = function() return "CLR", true end,
+        press = function() engine.vast_clear(1) end,
+      },
     },
     draw = function() draw_vast() end,
   },
@@ -216,39 +219,48 @@ local function mmss(seconds)
 end
 
 -- ligne du haut : l'étage et ses points de page, le rôle de K2 et K3,
--- l'horloge. K1 maintenu : toute la chaîne, l'étage courant en clair, un
+-- l'horloge. K1 maintenu : trois étages de la chaîne, le courant en clair, un
 -- effet éteint en minuscules.
 local function draw_top()
-  if shift then
-    local x = 0
-    for i, st in ipairs(STAGES) do
-      local off = st.on and params:get(st.on) == 0
-      local text = off and string.lower(st.short) or st.short
-      screen.level(i == stage and 15 or (off and 2 or 5))
-      screen.move(x, 7)
-      screen.text(text)
-      x = x + screen.text_extents(text) + 5
-    end
-    return
-  end
-
   local st = STAGES[stage]
-  screen.level(15)
-  screen.move(0, 7)
-  screen.text(st.name)
-  if #st.pages > 1 then
-    local x = screen.text_extents(st.name) + 4
-    for i = 1, #st.pages do
-      screen.level(i == page_of[stage] and 15 or 2)
-      screen.rect(x + (i - 1) * 4, 4, 2, 2)
-      screen.fill()
+  if shift then
+    -- Trois étages à la fois : le précédent, le courant en clair, le
+    -- suivant, chacun à sa place fixe. Un effet éteint est en minuscules.
+    -- La chaîne défile sous l'étage courant, et la droite de la ligne
+    -- reste libre pour les actions de K1 + K2 / K3.
+    for slot = -1, 1 do
+      local other = STAGES[stage + slot]
+      if other then
+        local off = other.on and params:get(other.on) == 0
+        screen.level(slot == 0 and 15 or (off and 2 or 5))
+        screen.move(36 + slot * 23, 7)
+        screen.text_center(off and string.lower(other.short) or other.short)
+      end
+    end
+    -- une flèche de chaque côté quand la chaîne continue
+    screen.level(3)
+    if STAGES[stage - 2] then screen.move(0, 7) screen.text("<") end
+    if STAGES[stage + 2] then screen.move(70, 7) screen.text(">") end
+  else
+    screen.level(15)
+    screen.move(0, 7)
+    screen.text(st.name)
+    if #st.pages > 1 then
+      local x = screen.text_extents(st.name) + 4
+      for i = 1, #st.pages do
+        screen.level(i == page_of[stage] and 15 or 2)
+        screen.rect(x + (i - 1) * 4, 4, 2, 2)
+        screen.fill()
+      end
     end
   end
 
-  -- labels alignés à gauche : ils partent toujours du même point
+  -- Ce que font K2 et K3 : leur action ordinaire, ou celle de K1 maintenu.
+  -- Les labels sont alignés à gauche : ils partent toujours du même point.
+  local keys = shift and (st.shift_keys or {}) or st.keys
   local blink = util.time() % 0.5 < 0.25
   for i, x in ipairs { 76, 101 } do
-    local k = st.keys[i]
+    local k = keys[i]
     if k then
       local label, on = k.label()
       -- un chargement en cours clignote
