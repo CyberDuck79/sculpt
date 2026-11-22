@@ -82,7 +82,9 @@ SculptDefs {
 			xfade = 0.005, glide = 0, level = 1, t_reset = 0|
 			var frames = BufFrames.kr(buf);
 			var gate = play > 0;
-			var inc = BufRateScale.kr(buf) * Lag.kr(rate, glide) * gate;
+			// une rampe régulière : le glissement dure le temps demandé, alors
+			// qu'un Lag en fait l'essentiel dans le premier tiers
+			var inc = BufRateScale.kr(buf) * Ramp.kr(rate, glide) * gate;
 			var lenF = (len * frames).max(64);
 			var startF = start * frames;
 			var p = Phasor.ar(T2A.ar(t_reset), inc, 0, lenF, 0);
