@@ -14,7 +14,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 
 | Stage | What it does | State |
 |---|---|---|
-| source | sample player, later a looper | sample player done |
+| source | sample player, later a looper | sample player done: region, speed, reverse, tempo sync |
 | MOSAIC | granular | 14 settings done |
 | RING | bank of resonant filters | 13 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
@@ -46,15 +46,44 @@ Then restart the norns (**SYSTEM > RESTART**), so that SuperCollider finds the n
 | K1 held + E1 | change stage |
 | K1 held + E2 / E3 | change the mode of that setting, when it has one |
 
-On the **source** stage:
+## Source
+
+The source is a sample player. A sample is loaded into memory, up to 5 minutes, and
+a mono file plays on both sides. It loops over a region of the sample, the whole of
+it to begin with.
 
 | Control | Action |
 |---|---|
-| K2 | play from the start / stop |
+| K2 | play from the start of the region / stop |
 | K3 | load a sample |
-| E2 | level |
+| K1 held + K2 | reverse: play backwards |
 
-A sample is loaded into memory, up to 5 minutes. A mono file plays on both sides. It loops over its whole length.
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Level** | **Speed**: how fast the sample plays, which is also its pitch, on the notes of a scale |
+| 2 | **Start**: where the region begins | **Length**: how long it is |
+| 3 | **Tempo**: the tempo of the norns clock | **Smp bpm**: the tempo of the sample |
+| 4 | **Xfade**: the crossfade where the loop meets itself, from 5 ms to half a second | **Glide**: smooths the changes of speed, up to 2 seconds |
+
+Modes, chosen with **K1 held** and the encoder of the setting:
+
+| Setting | Modes |
+|---|---|
+| Speed | the scale, as for the pitch of MOSAIC, or `free` |
+| Start, Length | the grid they move on, shared by both: `free`, or a division from 4 bars to 1/64. The grid is counted at the tempo of the sample, so it needs **Smp bpm** to be right |
+| Smp bpm | `free`: the sample plays at its own speed. `sync`: it follows the clock, by playing faster or slower, which also shifts its pitch |
+
+In `sync`:
+
+- playback starts on the next bar;
+- **Speed** moves by octaves only, so that the loop stays in step with the bar;
+- **Glide** is switched off, since a glide would let the loop drift.
+
+The crossfade does not shorten the loop: while the region starts again, what comes
+just after its end fades out underneath. A loop of four beats stays four beats long.
+
+On the screen, the region is bright and the rest of the sample dark, with a line at
+each end of the region.
 
 ### Mix and send
 

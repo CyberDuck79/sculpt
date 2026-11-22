@@ -28,7 +28,19 @@ local STAGES = {
   {
     name = "source",
     short = "SRC",
-    pages = { { "level", false } },
+    pages = {
+      { "level", { "src_speed", mode = "src_scale" } },
+      { { "src_start", mode = "src_grid" }, { "src_length", mode = "src_grid" } },
+      { "clock_tempo", { "src_bpm", mode = "src_tempo_mode" } },
+      { "src_xfade", "src_glide" },
+    },
+    -- K1 maintenu + K2 : lecture à l'envers
+    shift_keys = {
+      {
+        label = function() return "REV", params:get("src_reverse") == 1 end,
+        press = function() params:delta("src_reverse", 1) end,
+      },
+    },
     keys = {
       {
         label = function() return "PLAY", params:get("play") == 1 end,
@@ -142,12 +154,6 @@ local STAGES = {
     },
     draw = function() draw_vast() end,
   },
-  {
-    name = "settings",
-    short = "SET",
-    pages = { { "clock_tempo", false } },
-    keys = {},
-  },
 }
 
 local stage = 1
@@ -233,14 +239,14 @@ local function draw_top()
       if other then
         local off = other.on and params:get(other.on) == 0
         screen.level(slot == 0 and 15 or (off and 2 or 5))
-        screen.move(36 + slot * 23, 7)
+        screen.move(34 + slot * 21, 7)
         screen.text_center(off and string.lower(other.short) or other.short)
       end
     end
     -- une flèche de chaque côté quand la chaîne continue
     screen.level(3)
     if STAGES[stage - 2] then screen.move(0, 7) screen.text("<") end
-    if STAGES[stage + 2] then screen.move(70, 7) screen.text(">") end
+    if STAGES[stage + 2] then screen.move(65, 7) screen.text(">") end
   else
     screen.level(15)
     screen.move(0, 7)
@@ -306,15 +312,33 @@ draw_source = function()
 
   local playing = params:get("play") == 1
   local head = util.clamp(math.floor(state.pos * 128), 0, 127)
+  -- la région lue : ce qui est en dehors est éteint
+  local start, len = parameters.src_region()
+  local from, to = math.floor(start * 128), math.min(127, math.ceil((start + len) * 128) - 1)
+  local reversed = params:get("src_reverse") == 1
   -- les crêtes sont ramenées à la plus haute : un sample faible reste lisible
   local top = 0.001
   for _, v in ipairs(state.wave) do top = math.max(top, v) end
   for i, v in ipairs(state.wave) do
+    local x = i - 1
     local h = math.max(1, util.round(VIZ_HALF * v / top))
-    -- ce qui est déjà lu est plus clair
-    screen.level((playing and i - 1 <= head) and 8 or 3)
-    screen.rect(i - 1, VIZ_MID - h, 1, 2 * h)
+    local level = 1
+    if x >= from and x <= to then
+      -- ce qui est déjà lu dans ce tour de boucle est plus clair
+      local done = playing and ((not reversed and x <= head) or (reversed and x >= head))
+      level = done and 8 or 4
+    end
+    screen.level(level)
+    screen.rect(x, VIZ_MID - h, 1, 2 * h)
     screen.fill()
+  end
+  -- les bords de la région, quand elle ne couvre pas tout le sample
+  if from > 0 or to < 127 then
+    screen.level(6)
+    for _, x in ipairs { from, to } do
+      screen.rect(x, VIZ_TOP, 1, 2 * VIZ_HALF + 1)
+      screen.fill()
+    end
   end
   if playing then
     screen.level(15)

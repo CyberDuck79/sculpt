@@ -8,7 +8,8 @@
 -- hold K1: E1 stage
 -- (+ E2 / E3: setting mode)
 -- source: K2 play / stop,
--- K3 load a sample
+-- K3 load a sample,
+-- K1 + K2 reverse
 -- mosaic: K2 on / off,
 -- K3 lock the buffer
 
@@ -80,6 +81,8 @@ function init()
       state.wave = {}
       for i = 2, #args do state.wave[i - 1] = args[i] end
     end
+    -- la grille et la région dépendent de la durée du sample
+    parameters.src_refresh()
   end
 
   local p = poll.set("play_pos", function(x) state.pos = x end)

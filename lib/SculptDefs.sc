@@ -64,22 +64,38 @@ SculptDefs {
 	}
 
 	*add {
-		// Lecteur de sample : lit tout le buffer en boucle.
+		// Lecteur de sample : lit en boucle une région du buffer.
 		//   play  : 1 lecture (fondu de 1 ms, pour garder l'attaque du sample),
-		//           0 arrêt (fondu de 10 ms) ; t_reset repart du début
-		//   speed : vitesse (1 = normale), corrigée du taux du fichier
-		// Un fondu de 5 ms à chaque bout évite le clic au raccord de boucle.
+		//           0 arrêt (fondu de 10 ms) ; t_reset repart du début de la région
+		//   rate  : vitesse (1 = normale), corrigée du taux du fichier ; Lua y
+		//           a déjà mis la hauteur et le calage sur le tempo
+		//   dir   : 1 à l'endroit, -1 à l'envers
+		//   start, len : la région, en fractions du buffer
+		//   xfade : durée du fondu au raccord, en secondes
+		//   glide : temps de lissage des changements de vitesse
+		// Le raccord : une seconde tête lit ce qui suit la fin de la région et
+		// s'efface pendant que la première entre au début. La boucle garde
+		// ainsi exactement sa longueur, ce qu'il faut pour rester calé sur le
+		// tempo ; un fondu qui raccourcirait la boucle la ferait dériver.
 		// La position (0..1) part vers sclang 30 fois par seconde.
-		SynthDef(\sculpt_player, { |out, buf, play = 0, speed = 1, level = 1, t_reset = 0|
+		SynthDef(\sculpt_player, { |out, buf, play = 0, rate = 1, dir = 1, start = 0, len = 1,
+			xfade = 0.005, glide = 0, level = 1, t_reset = 0|
 			var frames = BufFrames.kr(buf);
 			var gate = play > 0;
-			var rate = BufRateScale.kr(buf) * speed * gate;
-			var phase = Phasor.ar(T2A.ar(t_reset), rate, 0, frames, 0);
-			var sig = BufRd.ar(2, buf, phase, 1, 4);
-			var edge = (min(phase, frames - phase) / (0.005 * SampleRate.ir)).clip(0, 1);
+			var inc = BufRateScale.kr(buf) * Lag.kr(rate, glide) * gate;
+			var lenF = (len * frames).max(64);
+			var startF = start * frames;
+			var p = Phasor.ar(T2A.ar(t_reset), inc, 0, lenF, 0);
+			var fwd = dir > 0;
+			var posA = startF + Select.ar(K2A.ar(fwd), [lenF - p, p]);
+			var posB = posA + (dir * lenF);
+			var xfF = (xfade.max(0.005) * BufSampleRate.kr(buf)).min(lenF * 0.5);
+			var x = (p / xfF).clip(0, 1) * 0.5pi;
+			var sig = (BufRd.ar(2, buf, posA.wrap(0, frames), 1, 4) * x.sin)
+				+ (BufRd.ar(2, buf, posB.wrap(0, frames), 1, 4) * x.cos);
 			var amp = LagUD.kr(gate, 0.001, 0.01) * Lag.kr(level, 0.05);
-			SendReply.kr(Impulse.kr(30), '/sculpt/pos', A2K.kr(phase) / frames);
-			Out.ar(out, sig * edge * amp);
+			SendReply.kr(Impulse.kr(30), '/sculpt/pos', A2K.kr(posA.wrap(0, frames)) / frames);
+			Out.ar(out, sig * amp);
 		}).add;
 
 		// MOSAIC : granulaire sur les 4 dernières secondes du flux.

@@ -28,12 +28,7 @@ function parameters.add(s)
     engine.file(path)
   end)
 
-  -- lu ici : l'argument de l'action ignore la modulation de matrix
-  params:add_binary("play", "play", "toggle", 0)
-  params:set_action("play", function() engine.play(params:get("play")) end)
-
-  params:add_control("level", "level", controlspec.new(0, 2, "lin", 0, 1), pct)
-  params:set_action("level", function(x) engine.level(x) end)
+  parameters.add_source()
 
   parameters.add_mosaic()
   parameters.add_ring()
@@ -177,6 +172,7 @@ local function send_scan() engine.mos_scan(parameters.mos_scan_value()) end
 
 -- le tempo a changé : ce qui est calé dessus suit
 function parameters.mos_tempo_changed()
+  parameters.src_refresh()
   if rate_synced() then send_rate() end
   if size_synced() then send_size() end
   if scan_mode() == 2 then send_scan() end
@@ -203,6 +199,185 @@ parameters.deltas = {
     if scan_mode() == 2 then div_delta("mos_scan", DIVS.scan, d) else params:delta("mos_scan", d) end
   end,
 }
+
+-- ---------------------------------------------------------------- source
+
+-- La grille de START et LENGTH, en temps du sample : elle se compte avec
+-- le tempo du sample, pas celui de l'horloge.
+local GRID = {
+  { "free" }, { "4/1", 16 }, { "2/1", 8 }, { "1/1", 4 }, { "1/2", 2 }, { "1/4", 1 },
+  { "1/8", 1 / 2 }, { "1/16", 1 / 4 }, { "1/32", 1 / 8 }, { "1/64", 1 / 16 },
+}
+
+local function src_synced() return params:get("src_tempo_mode") == 2 end
+
+-- un pas de grille, en fraction du sample ; nil sans grille ou sans sample
+local function grid_step()
+  local g = GRID[params:get("src_grid")]
+  if not g[2] or state.seconds <= 0 then return nil end
+  return g[2] * 60 / params:get("src_bpm") / state.seconds
+end
+
+-- La région lue : début et longueur, en fractions du sample. Avec une
+-- grille, les deux tombent sur un nombre entier de pas.
+function parameters.src_region()
+  local start, len = params:get("src_start"), params:get("src_length")
+  local step = grid_step()
+  if step and step < 1 then
+    local last = math.max(0, math.ceil(1 / step - 1e-6) - 1)
+    local n = util.clamp(util.round(start / step), 0, last)
+    start = n * step
+    len = math.max(1, util.round(len / step)) * step
+  else
+    start = math.min(start, 0.99)
+  end
+  -- 10 ms au moins, et jamais au-delà de la fin du sample
+  local floor = state.seconds > 0 and math.min(1, 0.01 / state.seconds) or 0.001
+  len = util.clamp(len, floor, math.max(floor, 1 - start))
+  return start, len
+end
+
+-- La hauteur, en demi-tons. Calé sur le tempo, le lecteur ne change de
+-- vitesse que par octaves : la boucle reste ainsi alignée sur la mesure.
+function parameters.src_semis()
+  local st = params:get("src_speed")
+  if src_synced() then return util.round(st / 12) * 12 end
+  return scales.snap(params:get("src_scale"), st)
+end
+
+-- la vitesse de lecture envoyée à l'engine
+function parameters.src_rate()
+  local rate = 2 ^ (parameters.src_semis() / 12)
+  if src_synced() then rate = rate * params:get("clock_tempo") / params:get("src_bpm") end
+  return rate
+end
+
+local function send_src_rate()
+  engine.src_rate(parameters.src_rate())
+  -- calé, un lissage ferait dériver la boucle
+  local g = params:get("src_glide")
+  engine.src_glide(src_synced() and 0 or (g * g * 2))
+end
+
+local function send_src_region()
+  local start, len = parameters.src_region()
+  engine.src_start(start)
+  engine.src_len(len)
+end
+
+-- le sample vient d'être chargé, ou le tempo a changé
+function parameters.src_refresh()
+  send_src_rate()
+  send_src_region()
+end
+
+-- Lecture : calé sur le tempo, elle part au début de la mesure suivante.
+local starting
+local function send_play()
+  local on = params:get("play")
+  if starting then clock.cancel(starting) starting = nil end
+  if on == 1 and src_synced() then
+    starting = clock.run(function()
+      clock.sync(4)
+      starting = nil
+      engine.play(1)
+    end)
+  else
+    engine.play(on)
+  end
+end
+
+-- START et LENGTH affichés en secondes, ou en nombre de pas de la grille
+local function region_string(which)
+  local start, len = parameters.src_region()
+  local v = which == "start" and start or len
+  local step = grid_step()
+  if step and step < 1 then
+    return util.round(v / step) .. "x" .. GRID[params:get("src_grid")][1]
+  end
+  local t = v * state.seconds
+  if state.seconds <= 0 then return util.round(v * 100) .. "%" end
+  return t < 10 and string.format("%.2f s", t) or string.format("%.1f s", t)
+end
+
+function parameters.add_source()
+  -- lu ici : l'argument de l'action ignore la modulation de matrix
+  params:add_binary("play", "play", "toggle", 0)
+  params:set_action("play", send_play)
+  params:add_binary("src_reverse", "reverse", "toggle", 0)
+  params:set_action("src_reverse", function() engine.src_dir(params:get("src_reverse") == 1 and -1 or 1) end)
+
+  params:add_control("level", "level", controlspec.new(0, 2, "lin", 0, 1), pct)
+  params:set_action("level", function(x) engine.level(x) end)
+
+  -- La vitesse de lecture, qui est aussi la hauteur : par notes d'une
+  -- gamme, comme PITCH dans MOSAIC.
+  params:add_option("src_scale", "speed scale", scales.NAMES, 1)
+  params:set_action("src_scale", send_src_rate)
+  params:add_control("src_speed", "speed", controlspec.new(-24, 24, "lin", 0, 0), function()
+    local v = parameters.src_semis()
+    local text = v == math.floor(v) and string.format("%d", v) or string.format("%.1f", v)
+    return (v > 0 and "+" or "") .. text .. " st"
+  end)
+  params:set_action("src_speed", send_src_rate)
+
+  params:add_option("src_grid", "grid", (function()
+    local names = {}
+    for i, g in ipairs(GRID) do names[i] = g[1] end
+    return names
+  end)(), 1)
+  params:set_action("src_grid", send_src_region)
+  params:add_control("src_start", "start", controlspec.new(0, 1, "lin", 0, 0), function()
+    return region_string("start")
+  end)
+  params:set_action("src_start", send_src_region)
+  params:add_control("src_length", "length", controlspec.new(0, 1, "lin", 0, 1), function()
+    return region_string("length")
+  end)
+  params:set_action("src_length", send_src_region)
+
+  -- Le tempo du sample. Il sert à la grille, et en mode sync à caler la
+  -- lecture sur l'horloge : la vitesse devient tempo / tempo du sample.
+  params:add_option("src_tempo_mode", "sample tempo mode", { "free", "sync" }, 1)
+  params:set_action("src_tempo_mode", function() parameters.src_refresh() end)
+  params:add_number("src_bpm", "smp bpm", 40, 240, 120)
+  params:set_action("src_bpm", function() parameters.src_refresh() end)
+
+  -- fondu au raccord de boucle, de 5 ms à 0,5 s
+  params:add_control("src_xfade", "xfade", controlspec.new(0, 1, "lin", 0, 0), function(p)
+    return util.round((0.005 + p:get() ^ 2 * 0.495) * 1000) .. " ms"
+  end)
+  params:set_action("src_xfade", function(x) engine.src_xfade(0.005 + x * x * 0.495) end)
+  -- lissage des changements de vitesse, jusqu'à 2 s
+  params:add_control("src_glide", "glide", controlspec.new(0, 1, "lin", 0, 0), function(p)
+    return seconds(p:get() ^ 2 * 2)
+  end)
+  params:set_action("src_glide", send_src_rate)
+end
+
+parameters.deltas.src_speed = function(d)
+  local v = params:get("src_speed")
+  if src_synced() then
+    params:set("src_speed", (util.round(v / 12) + d) * 12)
+  elseif scales.is_free(params:get("src_scale")) then
+    params:set("src_speed", v + d * 0.1)
+  else
+    params:set("src_speed", scales.step(params:get("src_scale"), v, d, -24, 24))
+  end
+end
+for _, id in ipairs { "src_start", "src_length" } do
+  parameters.deltas[id] = function(d)
+    local step = grid_step()
+    if step and step < 1 then
+      -- on part de la valeur calée, pour qu'un cran fasse toujours un pas
+      local start, len = parameters.src_region()
+      local from = id == "src_start" and start or len
+      params:set(id, from + d * step)
+    else
+      params:delta(id, d)
+    end
+  end
+end
 
 -- MOSAIC : granulaire sur les 4 dernières secondes du flux
 function parameters.add_mosaic()

@@ -112,6 +112,10 @@ Engine_Sculpt : CroneEngine {
 			};
 		});
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
+		// le reste du lecteur : une commande par argument du synth
+		[\rate, \dir, \start, \len, \xfade, \glide].do { |key|
+			this.addCommand(("src_" ++ key).asSymbol, "f", { |msg| player.set(key, msg[1]) });
+		};
 
 		// MOSAIC : une commande par réglage, du même nom que l'argument du synth
 		[\pitch, \rate, \size, \contour, \scan, \spray, \feedback, \wet, \send, \pattern,
