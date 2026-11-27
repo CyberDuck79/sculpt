@@ -6,7 +6,8 @@
 -- E1 page, E2 / E3 controls
 -- K2 / K3: see top of screen
 -- hold K1: E1 stage
--- (+ E2 / E3: setting mode)
+-- (+ E2 / E3: setting mode,
+-- K3 then E2 / E3: modulate)
 -- source: K2 play / stop,
 -- K3 load a sample,
 -- K1 + K2 reverse

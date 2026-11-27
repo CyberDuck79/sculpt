@@ -9,6 +9,7 @@
 -- à 46) entre deux marges de 3 px, 14 px pour les deux réglages.
 
 local fileselect = require "fileselect"
+local modlink = include("lib/modlink")
 
 local ui = {}
 
@@ -16,12 +17,18 @@ local state, parameters
 local shift = false
 -- le sélecteur de fichiers de norns est ouvert
 local selecting = false
+-- K1 + K3 a été pressé : le prochain tour de E2 ou E3 ouvre matrix sur le
+-- réglage de cet encodeur
+local mod_armed = false
+-- un mot affiché un instant à la place du label de K3
+local note, note_until = nil, 0
 
 local draw_source, draw_mosaic, draw_ring, draw_deform, draw_vast
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
---   param, ou { id, mode = id du param de mode }, ou false (encodeur libre).
+--   param, ou { id, mode = id du param de mode, label = nom court à
+--   l'écran }, ou false (encodeur libre).
 -- keys : ce que font K2 et K3 dans l'étage (label, actif ?, action).
 -- on : pour un effet, l'identifiant de son interrupteur (bypass = éteint).
 local STAGES = {
@@ -91,12 +98,12 @@ local STAGES = {
     short = "RNG",
     on = "ring_on",
     pages = {
-      { "ring_cutoff", "ring_reso" },
+      { "ring_cutoff", { "ring_reso", label = "reso" } },
       { { "ring_decay", mode = "ring_decay_mode" }, "ring_tilt" },
       { "ring_slope", "ring_tone" },
       { { "ring_pitch", mode = "ring_scale" }, { "ring_wet", mode = "ring_wet_mode" } },
-      { "ring_waves", { "ring_waves_rate", mode = "ring_waves_rate_mode" } },
-      { "ring_noise", { "ring_noise_rate", mode = "ring_noise_rate_mode" } },
+      { "ring_waves", { "ring_waves_rate", mode = "ring_waves_rate_mode", label = "rate" } },
+      { "ring_noise", { "ring_noise_rate", mode = "ring_noise_rate_mode", label = "rate" } },
       { "ring_detune", "ring_root" },
     },
     keys = {
@@ -145,9 +152,9 @@ local STAGES = {
         press = function() params:delta("vast_freeze", 1) end,
       },
     },
-    -- K1 maintenu + K3 : vider les deux boucles
+    -- K1 maintenu + K2 : vider les deux boucles
     shift_keys = {
-      [2] = {
+      {
         label = function() return "CLR", true end,
         press = function() engine.vast_clear(1) end,
       },
@@ -174,6 +181,7 @@ end
 function ui.enc(n, d)
   local st = STAGES[stage]
   if n == 1 then
+    mod_armed = false
     if shift then
       stage = util.clamp(stage + d, 1, #STAGES)
     else
@@ -182,6 +190,14 @@ function ui.enc(n, d)
     return
   end
   local id, mode = slot(st.pages[page_of[stage]][n - 1])
+  if mod_armed then
+    -- le réglage de cet encodeur est celui qu'on veut moduler
+    mod_armed = false
+    if not (id and modlink.open(id)) then
+      note, note_until = "N/A", util.time() + 1
+    end
+    return
+  end
   if shift then
     if mode then params:delta(mode, d) end
   elseif id then
@@ -196,6 +212,20 @@ function ui.key(n, z)
     shift = z == 1
   elseif z == 1 then
     local st = STAGES[stage]
+    -- K1 + K3, sur tous les étages : arme la modulation. Toute autre
+    -- touche la désarme, sans faire son action.
+    if mod_armed then
+      mod_armed = false
+      return
+    end
+    if shift and n == 3 then
+      if modlink.available() then
+        mod_armed = true
+      else
+        note, note_until = "NO MOD", util.time() + 1
+      end
+      return
+    end
     -- K1 maintenu donne la seconde action de la touche, et rien quand elle
     -- n'existe pas : K1 sert aussi à changer d'étage, et une touche pressée
     -- en chemin ne doit pas déclencher son action ordinaire.
@@ -267,7 +297,18 @@ local function draw_top()
   local blink = util.time() % 0.5 < 0.25
   for i, x in ipairs { 76, 101 } do
     local k = keys[i]
-    if k then
+    if i == 2 and (mod_armed or shift or util.time() < note_until) then
+      -- K3 avec K1 : la modulation. Armée, elle clignote en attendant
+      -- qu'on tourne l'encodeur du réglage à moduler.
+      local text = util.time() < note_until and note or "MOD"
+      if mod_armed then
+        screen.level(blink and 15 or 4)
+      else
+        screen.level(text == "MOD" and not modlink.available() and 2 or 15)
+      end
+      screen.move(x, 7)
+      screen.text(text)
+    elseif k then
       local label, on = k.label()
       -- un chargement en cours clignote
       if label == "LOAD" and on then
@@ -803,12 +844,6 @@ local function draw_param(entry, x)
   if not id then return end
   local p = params:lookup_param(id)
   local dim = shift and not mode
-  screen.level(dim and 1 or 4)
-  screen.move(x, 55)
-  screen.text(p.name)
-  -- la valeur peut être plus longue que la place laissée par le nom
-  -- (« decay 100 % » par exemple) : elle passe devant, sur du noir, plutôt
-  -- que de se mêler aux lettres du nom
   local value
   if shift and mode then
     value = params:string(mode)
@@ -817,9 +852,27 @@ local function draw_param(entry, x)
     value = id == "clock_tempo" and string.format("%d", util.round(params:get(id))) or params:string(id)
   end
   local w = screen.text_extents(value)
-  screen.level(0)
-  screen.rect(x + 58 - w, 49, w + 3, 8)
-  screen.fill()
+  -- un réglage modulé porte un point après son nom
+  local modulated = modlink.modulated(id)
+  -- Le nom cède la place à la valeur : quand les deux ne tiennent pas dans
+  -- les 60 pixels, il perd ses dernières lettres, entières. Une lettre
+  -- coupée en deux par la valeur se lit comme une autre lettre.
+  local room = 60 - w - 4 - (modulated and 4 or 0)
+  -- à l'écran, un réglage peut porter un nom plus court que dans les menus
+  local name = type(entry) == "table" and entry.label or p.name
+  while #name > 1 and screen.text_extents(name) > room do
+    name = string.sub(name, 1, -2)
+  end
+  -- pas d'espace en fin de nom : le point de modulation s'y collerait mal
+  name = string.gsub(name, "%s+$", "")
+  screen.level(dim and 1 or 4)
+  screen.move(x, 55)
+  screen.text(name)
+  if modulated then
+    screen.level(dim and 2 or 12)
+    screen.rect(x + screen.text_extents(name) + 2, 51, 2, 2)
+    screen.fill()
+  end
   screen.level(dim and 2 or 15)
   screen.move(x + 60, 55)
   screen.text_right(value)
@@ -835,9 +888,25 @@ local function draw_param(entry, x)
     screen.rect(x, 59, math.max(1, util.round(60 * r)), 2)
   end
   screen.fill()
+  -- La barre montre la valeur réglée ; un trait au-dessus d'elle montre où
+  -- la modulation l'emmène à l'instant.
+  if modulated then
+    local live
+    if p.get_modulated_raw then
+      live = p:get_modulated_raw()
+    elseif p.min and p.max and p.max > p.min then
+      live = (p:get() - p.min) / (p.max - p.min)
+    end
+    if live then
+      screen.level(15)
+      screen.rect(x + util.clamp(util.round(59 * live), 0, 59), 57, 1, 4)
+      screen.fill()
+    end
+  end
 end
 
 function ui.redraw()
+  modlink.tick()
   if selecting then return end
   screen.clear()
   screen.font_face(1)

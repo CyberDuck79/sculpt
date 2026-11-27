@@ -20,7 +20,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
 | VAST | delay and reverb | all 8 settings done |
 
-Modulation will come from the `matrix` and `toolkit` mods, and presets from the norns PSET menu.
+Modulation comes from the `matrix` and `toolkit` mods, and presets from the norns PSET menu.
 
 ## Requirements
 
@@ -45,6 +45,29 @@ Then restart the norns (**SYSTEM > RESTART**), so that SuperCollider finds the n
 | K2 / K3 | the two actions of the stage, named at the top of the screen |
 | K1 held + E1 | change stage |
 | K1 held + E2 / E3 | change the mode of that setting, when it has one |
+| K1 held + K3, then E2 or E3 | modulate that setting (see Modulation) |
+
+## Modulation
+
+Modulation comes from two norns mods, which must be installed and enabled:
+[matrix](https://github.com/sixolet/matrix), which connects a source to a setting
+with an amount, and [toolkit](https://github.com/sixolet/toolkit), which provides
+the sources: LFOs, sequences, rhythms and macros.
+
+sculpt opens matrix straight on the setting you want to modulate, instead of going
+through **SYSTEM > MODS**:
+
+1. hold **K1**: `MOD` shows at the top right, on K3;
+2. press **K3**: `MOD` blinks;
+3. turn **E2** or **E3**: matrix opens on the sources of that setting. Choose a
+   source and its amount there;
+4. **K2** comes back to sculpt.
+
+Any other key, or E1, cancels the blinking. A setting that is a list cannot be
+modulated: `N/A` shows for a moment.
+
+A modulated setting has a dot after its name. Its bar still shows the value you set,
+and a tick moves over it to show where the modulation takes it right now.
 
 ## Source
 
@@ -143,12 +166,12 @@ pitch.
 
 | Page | E2 | E3 |
 |---|---|---|
-| 1 | **Cutoff**: where the response turns | **Resonance**: a peak at the cutoff |
+| 1 | **Cutoff**: where the response turns | **Reso**: a peak at the cutoff |
 | 2 | **Decay**: how long each band keeps ringing | **Tilt**: leans that ringing towards the low or the high bands |
 | 3 | **Slope**: -100% low-pass, 0% band-pass, +100% high-pass | **Tone**: overall lean of the response, lows against highs |
 | 4 | **Pitch**: shifts the whole bank, in semitones | **Wet**: dry / effect balance |
-| 5 | **Waves**: the level of the bands rises and falls in a wave that travels along the bank | **Waves r**: its rate |
-| 6 | **Noise**: the level of each band moves at random, on its own | **Noise r**: its rate |
+| 5 | **Waves**: the level of the bands rises and falls in a wave that travels along the bank | **Rate**: its rate |
+| 6 | **Noise**: the level of each band moves at random, on its own | **Rate**: its rate |
 | 7 | **Detune**: the bands drift around their place, differently on each side, which widens the sound | **Root**: the root note of the scale |
 
 Modes, chosen with **K1 held** and the encoder of the setting:
@@ -157,7 +180,7 @@ Modes, chosen with **K1 held** and the encoder of the setting:
 |---|---|
 | Decay | `choke`: closing the cutoff silences the ringing bands at once. `sustain`: they ring out |
 | Pitch | the scale of the bands. `free` (the default) spreads the 48 bands evenly from 40 Hz to 16 kHz. With a scale, each band moves to the nearest note, and bands that land on the same note become one: a sparse scale such as `fifths` or `octaves` leaves only a few bands, which ring like a chord. The root note is **Root**, on page 7 |
-| Waves r, Noise r | `free`, from 0.05 to 20 Hz, or a division of the tempo: `straight`, `triplet` or `dotted` |
+| Rate (of Waves and of Noise) | `free`, from 0.05 to 20 Hz, or a division of the tempo: `straight`, `triplet` or `dotted` |
 
 On the screen, each bar is a band, from the lowest on the left to the highest on
 the right. The grey bar is the level that band lets through, as the filter is set.
@@ -208,7 +231,7 @@ the delay, then the reverb, and both feedback paths pass through the same filter
 |---|---|
 | K2 | stage on / off |
 | K3 | freeze: both loops close on themselves and keep ringing |
-| K1 held + K3 | clear: empties both |
+| K1 held + K2 | clear: empties both |
 
 | Page | E2 | E3 |
 |---|---|---|

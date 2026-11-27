@@ -627,7 +627,7 @@ function parameters.add_ring()
   -- le niveau de chaque bande bouge au hasard
   params:add_control("ring_noise", "noise", controlspec.new(0, 1, "lin", 0, 0), pct)
   params:set_action("ring_noise", function(x) engine.ring_noise(x) end)
-  for _, r in ipairs { { "ring_waves_rate", "waves r", 0.5 }, { "ring_noise_rate", "noise r", 0.6 } } do
+  for _, r in ipairs { { "ring_waves_rate", "waves rate", 0.5 }, { "ring_noise_rate", "noise rate", 0.6 } } do
     params:add_option(r[1] .. "_mode", r[2] .. " mode", { "free", "straight", "triplet", "dotted" }, 1)
     params:set_action(r[1] .. "_mode", send_ring_rates)
     params:add_control(r[1], r[2], controlspec.new(0, 1, "lin", 0, r[3]), function()
