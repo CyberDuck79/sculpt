@@ -78,9 +78,17 @@ SculptDefs {
 		// ainsi exactement sa longueur, ce qu'il faut pour rester calé sur le
 		// tempo ; un fondu qui raccourcirait la boucle la ferait dériver.
 		// La position (0..1) part vers sclang 30 fois par seconde.
-		SynthDef(\sculpt_player, { |out, buf, play = 0, rate = 1, dir = 1, start = 0, len = 1,
-			xfade = 0.005, glide = 0, level = 1, t_reset = 0|
-			var frames = BufFrames.kr(buf);
+		//   content : nombre d'images utiles quand le buffer n'est pas plein (la
+		//           bande) ; 0 = tout le buffer. La région se compte dessus.
+		//   posBus : la position de lecture, en images, pour l'overdub
+		// La seconde tête n'a rien à lire quand la région touche le bout du
+		// buffer (un fichier lu en entier, ou une lecture à l'envers depuis
+		// le début) : le raccord redevient alors un fondu de sortie puis
+		// d'entrée, sans recouvrement.
+		SynthDef(\sculpt_player, { |out, buf, posBus, play = 0, rate = 1, dir = 1, start = 0,
+			len = 1, content = 0, xfade = 0.005, glide = 0, level = 1, t_reset = 0|
+			var phys = BufFrames.kr(buf);
+			var frames = Select.kr(content > 0, [phys, content.min(phys)]);
 			var gate = play > 0;
 			// une rampe régulière : le glissement dure le temps demandé, alors
 			// qu'un Lag en fait l'essentiel dans le premier tiers
@@ -91,13 +99,51 @@ SculptDefs {
 			var fwd = dir > 0;
 			var posA = startF + Select.ar(K2A.ar(fwd), [lenF - p, p]);
 			var posB = posA + (dir * lenF);
+			var okB = (posB >= 0) * (posB < phys);
 			var xfF = (xfade.max(0.005) * BufSampleRate.kr(buf)).min(lenF * 0.5);
 			var x = (p / xfF).clip(0, 1) * 0.5pi;
-			var sig = (BufRd.ar(2, buf, posA.wrap(0, frames), 1, 4) * x.sin)
-				+ (BufRd.ar(2, buf, posB.wrap(0, frames), 1, 4) * x.cos);
+			var tail = ((lenF - p) / xfF).clip(0, 1);
+			var sig = (BufRd.ar(2, buf, posA.clip(0, phys - 1), 1, 4) * x.sin
+					* (okB + ((1 - okB) * (tail * 0.5pi).sin)))
+				+ (BufRd.ar(2, buf, posB.clip(0, phys - 1), 1, 4) * x.cos * okB);
 			var amp = LagUD.kr(gate, 0.001, 0.01) * Lag.kr(level, 0.05);
-			SendReply.kr(Impulse.kr(30), '/sculpt/pos', A2K.kr(posA.wrap(0, frames)) / frames);
+			SendReply.kr(Impulse.kr(30), '/sculpt/pos', A2K.kr(posA) / frames);
+			Out.ar(posBus, posA);
 			Out.ar(out, sig * amp);
+		}).add;
+
+		// La bande : enregistre dans le buffer que le lecteur relit.
+		//   src  : 0 l'entrée du norns, 1 le bus de la chaîne (là où le synth
+		//          est placé : après les effets)
+		//   rec  : première prise. La tête part du début ; à l'arrêt, la
+		//          longueur part vers sclang. L'écriture continue `tail`
+		//          secondes : c'est ce que le lecteur fond au raccord.
+		//   dub  : overdub, à la position du lecteur. Ce qui était là est
+		//          gardé à hauteur de sos.
+		// Hors enregistrement, les écritures vont sur la dernière image du
+		// buffer, jamais lue.
+		SynthDef(\sculpt_tape, { |buf, bus, inL, inR, posBus, src = 0, rec = 0, dub = 0, sos = 1,
+			tail = 0.5, t_start = 0|
+			var frames = BufFrames.kr(buf);
+			var in = ([In.ar(inL), In.ar(inR)] * (1 - src)) + (In.ar(bus, 2) * src);
+			var stop = HPZ1.kr(rec) < 0;
+			var writing = (rec + Trig1.kr(stop, tail)).min(1);
+			var wph = Phasor.ar(T2A.ar(t_start), writing, 0, frames - 1);
+			var dubAmt = Slew.kr(dub, 100, 100);
+			var ph = In.ar(posBus);
+			var old = BufRd.ar(2, buf, ph, 1, 1);
+			var dead = K2A.ar(frames - 1);
+			BufWr.ar(in, buf, Select.ar(K2A.ar(writing), [dead, wph]));
+			BufWr.ar((old * (1 - (dubAmt * (1 - sos)))) + (in * dubAmt), buf,
+				Select.ar(K2A.ar(dubAmt > 0.0001), [dead, ph]));
+			SendReply.kr(stop, '/sculpt/tapelen', Latch.kr(A2K.kr(wph), stop));
+			SendReply.kr(Impulse.kr(30) * (rec + dub).min(1), '/sculpt/taperec',
+				[A2K.kr(wph), Amplitude.kr(Mix(in) * 0.5, 0.001, 0.05), A2K.kr(ph)]);
+		}).add;
+
+		// L'entrée du norns envoyée dans la chaîne.
+		SynthDef(\sculpt_monitor, { |out, inL, inR, level = 0|
+			Out.ar(out, [In.ar(inL), In.ar(inR)] * Lag.kr(level, 0.05));
 		}).add;
 
 		// Suiveur de niveau, pour le modulateur FOLLOW. Il écoute le bus de

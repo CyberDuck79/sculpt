@@ -6,10 +6,12 @@
 
 local scales = include("lib/scales")
 local mods = include("lib/mods")
+local tape = include("lib/tape")
 
 local parameters = {}
 
 parameters.mods = mods
+parameters.tape = tape
 
 -- ce que le script partage avec nous (voir sculpt.lua)
 local state
@@ -20,6 +22,7 @@ end
 
 function parameters.add(s)
   state = s
+  tape.init(s, parameters)
   params:add_separator("sculpt_sep", "sculpt")
 
   -- le sample de la source, chargé en RAM par l'engine (5 min au plus)
@@ -282,6 +285,7 @@ end
 local starting
 local function send_play()
   local on = params:get("play")
+  tape.play_changed(on)
   if starting then clock.cancel(starting) starting = nil end
   if on == 1 and src_synced() then
     starting = clock.run(function()
@@ -360,6 +364,24 @@ function parameters.add_source()
     return seconds(p:get() ^ 2 * 2)
   end)
   params:set_action("src_glide", send_src_rate)
+
+  -- La matière de la source : un fichier, ou une bande qu'on enregistre.
+  params:add_option("src_material", "material", { "file", "tape" }, 1)
+  params:set_action("src_material", function() tape.material_changed() end)
+  -- ce que la bande enregistre : l'entrée du norns, ou la sortie de la chaîne
+  params:add_option("tape_input", "tape input", { "input", "output" }, 1)
+  params:set_action("tape_input", function(i) engine.tape_src(i - 1) end)
+  -- en overdub, la part de l'ancien contenu gardée à chaque passage
+  params:add_control("tape_sos", "sos", controlspec.new(0, 1, "lin", 0, 1), pct)
+  params:set_action("tape_sos", function(x) engine.tape_sos(x) end)
+  -- l'entrée du norns envoyée dans la chaîne
+  params:add_control("monitor", "monitor", controlspec.new(0, 1, "lin", 0, 0), pct)
+  params:set_action("monitor", function(x) engine.monitor(x) end)
+  -- longueur de la prise : libre, ou un nombre de mesures
+  params:add_option("tape_bars", "rec length", { "free", "1 bar", "2 bars", "4 bars", "8 bars" }, 1)
+  -- départ : tout de suite, ou sur la mesure suivante (la prise est alors
+  -- arrondie à la mesure)
+  params:add_option("tape_start", "rec start", { "now", "next bar" }, 1)
 end
 
 parameters.deltas.src_speed = function(d)

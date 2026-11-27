@@ -22,9 +22,11 @@ local selecting = false
 local mod_armed = false
 -- un mot affiché un instant à la place du label de K3
 local note, note_until = nil, 0
+-- les touches enfoncées qui attendent de savoir si l'appui est long
+local held = {}
 
 local draw_source, draw_mosaic, draw_ring, draw_deform, draw_vast, draw_mod
-local mods
+local mods, tape
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
@@ -41,6 +43,9 @@ local STAGES = {
       { { "src_start", mode = "src_grid" }, { "src_length", mode = "src_grid" } },
       { "clock_tempo", { "src_bpm", mode = "src_tempo_mode" } },
       { "src_xfade", "src_glide" },
+      { "src_material", { "tape_input", label = "input" } },
+      { "tape_sos", "monitor" },
+      { { "tape_bars", label = "rec len" }, { "tape_start", label = "rec start" } },
     },
     -- K1 maintenu + K2 : lecture à l'envers
     shift_keys = {
@@ -49,20 +54,43 @@ local STAGES = {
         press = function() params:delta("src_reverse", 1) end,
       },
     },
+    -- Avec un fichier, K3 charge. Avec la bande, K3 enregistre puis fait
+    -- l'overdub, K3 tenu efface, et K2 tenu écrit la bande dans un fichier.
     keys = {
       {
         label = function() return "PLAY", params:get("play") == 1 end,
-        press = function() params:delta("play", 1) end,
+        press = function()
+          -- pendant une prise, K2 la ferme et la lecture démarre
+          if tape.on() and tape.recording() then return tape.k3() end
+          params:delta("play", 1)
+        end,
+        holding = function() return tape.on() end,
+        hold = function()
+          if not tape.on() then return false end
+          if tape.save() then note, note_until = "SAVED", util.time() + 1.5 end
+          return true
+        end,
       },
       {
-        label = function() return "LOAD", state.loading end,
+        label = function()
+          if tape.on() then return tape.k3_label() end
+          return "LOAD", state.loading, state.loading
+        end,
         press = function()
+          if tape.on() then return tape.k3() end
           -- le sélecteur dessine lui-même l'écran : on se tait jusqu'à sa fermeture
           selecting = true
           fileselect.enter(_path.audio, function(path)
             selecting = false
             if path ~= "cancel" then params:set("sample", path) end
           end)
+        end,
+        holding = function() return tape.on() end,
+        hold = function()
+          if not tape.on() then return false end
+          tape.clear()
+          note, note_until = "CLEAR", util.time() + 1
+          return true
         end,
       },
     },
@@ -211,6 +239,7 @@ end
 function ui.init(s, p)
   state, parameters = s, p
   mods = p.mods
+  tape = p.tape
 end
 
 -- un réglage de page : son identifiant et celui de son mode (ou nil)
@@ -272,7 +301,25 @@ function ui.key(n, z)
     -- en chemin ne doit pas déclencher son action ordinaire.
     local set = shift and (st.shift_keys or {}) or st.keys
     local k = set[n - 1]
-    if k then k.press() end
+    if not k then return end
+    if k.hold and not shift and (not k.holding or k.holding()) then
+      -- une touche qui a aussi une action tenue : l'appui court n'agit
+      -- qu'au relâchement, l'appui long au bout de 0,6 s
+      held[n] = { key = k, timer = clock.run(function()
+        clock.sleep(0.6)
+        local h = held[n]
+        held[n] = nil
+        if h and h.key.hold() == false then h.key.press() end
+      end) }
+    else
+      k.press()
+    end
+  elseif held[n] then
+    -- relâchée avant 0,6 s : l'action ordinaire
+    local h = held[n]
+    held[n] = nil
+    clock.cancel(h.timer)
+    h.key.press()
   end
 end
 
@@ -352,9 +399,9 @@ local function draw_top()
       screen.move(x, 7)
       screen.text(text)
     elseif k then
-      local label, on = k.label()
-      -- un chargement en cours clignote
-      if label == "LOAD" and on then
+      -- un label peut clignoter : un chargement, une prise, un overdub
+      local label, on, blinking = k.label()
+      if blinking then
         screen.level(blink and 15 or 5)
       else
         screen.level(on and 15 or 3)
@@ -390,9 +437,36 @@ end
 
 -- source : la forme d'onde et la tête de lecture
 draw_source = function()
-  if state.loading then return centered("loading...", 8) end
-  if state.failed then return centered("cannot read this file", 8) end
-  if not state.wave then return centered("K3: load a sample", 4) end
+  if tape.on() then
+    if tape.state == "armed" then return centered("waiting for the bar", 8) end
+    if tape.state == "rec" then
+      -- la prise en cours : ses derniers niveaux, le plus récent à droite
+      local levels = tape.live()
+      local n = #levels
+      -- ramenés au plus fort, comme la forme d'onde d'un sample
+      local top = 0.001
+      for x = 0, 127 do top = math.max(top, levels[n - x] or 0) end
+      for x = 0, 127 do
+        local v = levels[n - (127 - x)]
+        if v then
+          local h = math.max(1, util.round(VIZ_HALF * v / top))
+          screen.level(8)
+          screen.rect(x, VIZ_MID - h, 1, 2 * h)
+          screen.fill()
+        end
+      end
+      local text = mmss(tape.elapsed())
+      screen.level(15)
+      screen.move(127, VIZ_TOP + 6)
+      screen.text_right(text)
+      return
+    end
+    if not state.wave then return centered("K3: record", 4) end
+  else
+    if state.loading then return centered("loading...", 8) end
+    if state.failed then return centered("cannot read this file", 8) end
+    if not state.wave then return centered("K3: load a sample", 4) end
+  end
 
   local playing = params:get("play") == 1
   local head = util.clamp(math.floor(state.pos * 128), 0, 127)

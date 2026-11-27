@@ -11,6 +11,8 @@
 -- source: K2 play / stop,
 -- K3 load a sample,
 -- K1 + K2 reverse
+-- (tape: K3 record / overdub,
+-- hold K3 clear, hold K2 save)
 -- mosaic: K2 on / off,
 -- K3 lock the buffer
 -- mod: K2 / K3 previous / next
@@ -76,6 +78,9 @@ function init()
     if path == "/sculpt/mos" then return mosaic_wrote(args[1], args[2], args[3]) end
     -- le niveau suivi par un modulateur FOLLOW
     if path == "/sculpt/fol" then return parameters.mods.level_in(args[1] + 1, args[2]) end
+    if path == "/sculpt/tapelen" then return parameters.tape.length_in(args[1], args[2]) end
+    if path == "/sculpt/taperec" then return parameters.tape.level_in(args[1], args[2], args[3]) end
+    if path == "/sculpt/saved" then print("sculpt: tape saved to " .. args[1]) return end
     if path ~= "/sculpt/loaded" then return end
     state.loading = false
     state.seconds = args[1]
@@ -87,6 +92,7 @@ function init()
     end
     -- la grille et la région dépendent de la durée du sample
     parameters.src_refresh()
+    parameters.tape.file_loaded()
   end
 
   local p = poll.set("play_pos", function(x) state.pos = x end)

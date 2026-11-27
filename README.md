@@ -14,7 +14,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 
 | Stage | What it does | State |
 |---|---|---|
-| source | sample player, later a looper | sample player done: region, speed, reverse, tempo sync |
+| source | sample player and looper | done: region, speed, reverse, tempo sync, tape with overdub |
 | MOSAIC | granular | 14 settings done |
 | RING | bank of resonant filters | 13 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
@@ -157,6 +157,47 @@ In `sync`:
 
 The crossfade does not shorten the loop: while the region starts again, what comes
 just after its end fades out underneath. A loop of four beats stays four beats long.
+
+### The tape
+
+The source has two materials, chosen with **Material** on page 5: `file`, a sample
+loaded from the card, or `tape`, a loop that you record. The tape is played by the
+same player as a file, so everything above applies to it: region, speed on a scale,
+reverse, sync, crossfade.
+
+With the tape, the keys change:
+
+| Control | Action |
+|---|---|
+| K3 | on an empty tape, **REC**: start recording. While recording (`REC` blinks): close the loop, which starts playing. Then **DUB**: start and stop overdubbing |
+| K2 | play / stop. While recording: close the loop |
+| K3 held | clear the tape |
+| K2 held | save the tape to a file in `audio/sculpt/`, named with the date and time. `SAVED` shows at the top |
+
+| Page | E2 | E3 |
+|---|---|---|
+| 5 | **Material**: `file` or `tape` | **Input**: what the tape records, the audio `input` of the norns or the `output` of the effect chain |
+| 6 | **Sos**: while overdubbing, how much of what was there is kept at each pass. At 100% everything piles up; lower, the older layers fade away | **Monitor**: sends the audio input of the norns through the effects, whether you record or not |
+| 7 | **Rec len**: `free`, or 1, 2, 4 or 8 bars, after which the loop closes by itself | **Rec start**: `now`, or `next bar` |
+
+With **Rec start** on `next bar`, K3 arms the recording (`ARM` blinks) and it starts
+on the bar. The loop is then a whole number of bars: closing it late rounds it to the
+nearest bar, and the recording carries on to the end of the bar if it has to. The
+tempo of the sample is set to the tempo of the clock, so `sync` works without
+entering anything.
+
+Recording the `output` of the chain takes the sound with its effects. Played back,
+it goes through the effects again.
+
+To know:
+
+- the tape holds 2 minutes at most;
+- a file and the tape do not play together: switching **Material** switches what the
+  player reads. Loading a file switches back to `file`. The tape keeps its content
+  until it is cleared or the script is closed;
+- overdubbing writes where the player reads, so it is meant for normal speed. At
+  another speed the new layer is recorded with gaps or repeats;
+- there is no undo of an overdub.
 
 On the screen, the region is bright and the rest of the sample dark, with a line at
 each end of the region.

@@ -12,6 +12,9 @@
 Engine_Sculpt : CroneEngine {
 	// un fichier est chargé en RAM, 5 min au plus
 	classvar <maxSeconds = 300;
+	// la bande : sa durée, et la suite enregistrée après la fin d'une prise
+	classvar <tapeSeconds = 120;
+	classvar <tapeTail = 0.5;
 	// colonnes de la forme d'onde envoyée à Lua (largeur de l'écran)
 	classvar <waveCols = 128;
 	// MOSAIC : buffer circulaire de 4 s, comme sur le S4
@@ -27,6 +30,9 @@ Engine_Sculpt : CroneEngine {
 	var grpTapSrc, grpTapOut, followers, folArgs, folFunc;
 	var mosaic, mosBufs, mosPat, mosSnap, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
 	var buf, pos = 0, posFunc, lua;
+	// la bande : son buffer, son synth, sa longueur utile, et si c'est elle
+	// que lit le lecteur
+	var tapeBuf, tape, monitor, posBus, tapeLen = 0, onTape = false, monOn = false, tapeFuncs;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
 	// après un autre plus récent est ignoré
 	var loadId = 0;
@@ -94,7 +100,19 @@ Engine_Sculpt : CroneEngine {
 		ringFreqs = Array.fill(SculptDefs.ringBands, { |i|
 			40 * (2 ** (i * 8.64 / (SculptDefs.ringBands - 1))) });
 		ringMute = 1 ! SculptDefs.ringBands;
-		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf], grpSrc);
+		posBus = Bus.audio(s, 1);
+		tapeBuf = Buffer.alloc(s, (s.sampleRate * (tapeSeconds + tapeTail + 0.1)).asInteger, 2);
+		s.sync;
+		player = Synth(\sculpt_player, [\out, srcBus, \buf, buf, \posBus, posBus], grpSrc);
+		monitor = Synth.tail(grpSrc, \sculpt_monitor, [\out, srcBus,
+			\inL, context.in_b[0].index, \inR, context.in_b[1].index]);
+		// après les effets : c'est là que la bande prend la sortie de la chaîne
+		tape = Synth(\sculpt_tape, [\buf, tapeBuf, \bus, srcBus, \posBus, posBus,
+			\inL, context.in_b[0].index, \inR, context.in_b[1].index, \tail, tapeTail],
+			grpTapOut);
+		s.sync;
+		tape.run(false);
+		monitor.run(false);
 		// les effets démarrent en bypass, donc en pause
 		mosaic = Synth.newPaused(\sculpt_mosaic, [\bus, srcBus, \bufL, mosBufs[0], \bufR, mosBufs[1],
 			\envBase, envBufs[0].bufnum, \envSteps, contourSteps,
@@ -115,10 +133,71 @@ Engine_Sculpt : CroneEngine {
 			playing = msg[1] > 0;
 			// pendant un échange de buffer, la lecture repartira à sa fin
 			if(swapping.not) {
-				if(playing) { player.set(\t_reset, 1, \play, 1) } { player.set(\play, 0) };
+				if(playing and: { onTape.not or: { tapeLen > 64 } }) {
+					player.set(\t_reset, 1, \play, 1)
+				} { player.set(\play, 0) };
 			};
 		});
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
+
+		// La bande.
+		// tape_mode : 1 le lecteur lit la bande, 0 le fichier
+		this.addCommand(\tape_mode, "i", { |msg|
+			onTape = msg[1] > 0;
+			// la bande ne tourne que quand on s'en sert
+			tape.run(onTape);
+			this.swapSource;
+		});
+		// première prise : 1 démarre (le lecteur se tait), 0 ferme. La
+		// longueur revient par /sculpt/tapelen, et la lecture repart.
+		this.addCommand(\tape_rec, "i", { |msg|
+			if(msg[1] > 0) {
+				player.set(\play, 0);
+				tape.set(\dub, 0, \rec, 1, \t_start, 1);
+			} {
+				tape.set(\rec, 0);
+			};
+		});
+		// impose la longueur utile, en images (prise calée sur le tempo)
+		this.addCommand(\tape_len, "f", { |msg|
+			tapeLen = msg[1];
+			if(onTape) { player.set(\content, tapeLen.max(1)) };
+		});
+		this.addCommand(\tape_dub, "i", { |msg| tape.set(\dub, msg[1]) });
+		this.addCommand(\tape_sos, "f", { |msg| tape.set(\sos, msg[1]) });
+		this.addCommand(\tape_src, "i", { |msg| tape.set(\src, msg[1]) });
+		this.addCommand(\tape_clear, "i", {
+			tape.set(\rec, 0, \dub, 0);
+			tapeLen = 0;
+			playing = false;
+			if(onTape) { player.set(\play, 0, \content, 1) };
+			{ 0.05.wait; tapeBuf.zero }.fork;
+		});
+		this.addCommand(\tape_save, "s", { |msg|
+			var path = msg[1].asString;
+			if(tapeLen > 64) {
+				tapeBuf.write(path, "wav", "int24", tapeLen.asInteger, 0, false, { lua.sendMsg("/sculpt/saved", path) });
+			};
+		});
+		// éteint, le monitor est mis en pause, une fois son fondu fini
+		this.addCommand(\monitor, "f", { |msg|
+			monOn = msg[1] > 0;
+			if(monOn) { monitor.run(true) };
+			monitor.set(\level, msg[1]);
+			// rallumé entre-temps, il reste en marche
+			if(monOn.not) { { 0.3.wait; if(monOn.not) { monitor.run(false) } }.fork };
+		});
+		tapeFuncs = [
+			// La prise est finie : sa longueur est celle de la bande, et la
+			// lecture repart du début (Lua peut ensuite l'arrondir).
+			OSCFunc({ |msg|
+				tapeLen = msg[3];
+				playing = true;
+				if(onTape) { player.set(\content, tapeLen.max(1), \t_reset, 1, \play, 1) };
+				lua.sendMsg("/sculpt/tapelen", tapeLen, context.server.sampleRate);
+			}, '/sculpt/tapelen'),
+			OSCFunc({ |msg| lua.sendMsg("/sculpt/taperec", msg[3], msg[4], msg[5]) }, '/sculpt/taperec')
+		];
 
 		// Suiveurs de niveau. fol_set : emplacement (0..3), marche, entrée
 		// (0 après la source, 1 après la chaîne, 2 entrée du norns).
@@ -335,6 +414,21 @@ Engine_Sculpt : CroneEngine {
 
 	// Charge un fichier en RAM, puis le donne au lecteur. Répond à Lua par
 	// /sculpt/loaded : durée en secondes (0 = échec), puis la forme d'onde.
+	// Le lecteur change de buffer : le fichier ou la bande. Comme pour un
+	// chargement, on coupe le son le temps de l'échange.
+	swapSource {
+		var b = if(onTape) { tapeBuf } { buf };
+		var content = if(onTape) { tapeLen.max(1) } { 0 };
+		swapping = true;
+		player.set(\play, 0);
+		{
+			0.04.wait;
+			player.set(\buf, b, \content, content, \t_reset, 1);
+			swapping = false;
+			if(playing and: { onTape.not or: { tapeLen > 64 } }) { player.set(\play, 1) };
+		}.fork;
+	}
+
 	loadFile { |path|
 		var s = context.server;
 		var sf = SoundFile.openRead(path);
@@ -361,13 +455,18 @@ Engine_Sculpt : CroneEngine {
 				// (buf change tout de suite côté sclang : si un autre chargement
 				// arrive pendant le fondu, chacun libère bien son ancien buffer)
 				buf = b;
-				swapping = true;
-				player.set(\play, 0);
+				// un fichier chargé pendant qu'on lit la bande attend son tour
+				if(onTape.not) {
+					swapping = true;
+					player.set(\play, 0);
+				};
 				{
 					0.04.wait;
-					player.set(\buf, b, \t_reset, 1);
-					swapping = false;
-					if(playing) { player.set(\play, 1) };
+					if(onTape.not) {
+						player.set(\buf, b, \content, 0, \t_reset, 1);
+						swapping = false;
+						if(playing) { player.set(\play, 1) };
+					};
 					lua.sendMsg("/sculpt/loaded", seconds, *peaks);
 					0.2.wait;
 					old.free;
@@ -382,6 +481,9 @@ Engine_Sculpt : CroneEngine {
 		posFunc.free;
 		mosFunc.free;
 		folFunc.free;
+		tapeFuncs.do(_.free);
+		[tape, monitor].do { |x| x !? { x.free } };
+		tapeBuf.free; posBus.free;
 		followers.do { |f| f !? { f.free } };
 		[grpTapSrc, grpTapOut].do { |g| g !? { g.free } };
 		[player, mosaic, ringShape, ringSynth, defSynth, vastSynth, outSynth,
