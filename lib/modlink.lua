@@ -68,11 +68,28 @@ end
 -- la touche d'origine de la page, le temps qu'on la détourne
 local orig_key
 
+-- pour la liste filtrée : les réglages masqués, et la sortie d'origine
+local hidden, orig_exit
+-- la page de matrix est à remettre à zéro au prochain dessin du script
+local stale = false
+
 local function restore()
   local p = page()
   if p and orig_key then p.key = orig_key end
   orig_key = nil
-  if p then p.reset() end
+  if hidden then
+    for _, i in ipairs(hidden) do params:show(i) end
+    hidden = nil
+    if _menu.rebuild_params then _menu.rebuild_params() end
+  end
+  if orig_exit then
+    require("core/mods").menu.exit = orig_exit
+    orig_exit = nil
+  end
+  -- La page de matrix doit oublier sa liste, bâtie pendant que des réglages
+  -- étaient masqués. Pas tout de suite : on peut être appelé depuis sa
+  -- propre touche, et elle redessine encore une fois en sortant.
+  stale = true
   -- le menu de norns rouvrira sur son accueil, pas sur matrix
   _menu.page = "HOME"
 end
@@ -104,10 +121,37 @@ function link.open(id)
   return true
 end
 
+-- Ouvre la liste de matrix réduite aux réglages du script : ceux des
+-- lignes first à last de la liste de norns. Les autres sont masqués le
+-- temps de la visite. K2, en haut de la liste, ramène au script.
+function link.open_list(first, last)
+  local p = page()
+  if not p or not first or not last then return false end
+  hidden = {}
+  for i = 1, params.count do
+    if (i < first or i > last) and params:visible(i) then
+      params:hide(i)
+      table.insert(hidden, i)
+    end
+  end
+  local norns_mods = require("core/mods")
+  orig_exit = orig_exit or norns_mods.menu.exit
+  norns_mods.menu.exit = function() link.close() end
+  p.reset()
+  _menu.set_mode(true)
+  _menu.set_page("matrix")
+  return true
+end
+
 -- Appelé quand le script dessine : si on est revenu autrement que par K2
 -- (un appui court sur K1), on remet la page de matrix comme elle était.
 function link.tick()
-  if orig_key and _menu.mode == false then restore() end
+  if (orig_key or hidden) and _menu.mode == false then restore() end
+  if stale and _menu.mode == false then
+    stale = false
+    local p = page()
+    if p then p.reset() end
+  end
 end
 
 return link

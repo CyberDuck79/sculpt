@@ -13,6 +13,7 @@
 -- K1 + K2 reverse
 -- mosaic: K2 on / off,
 -- K3 lock the buffer
+-- mod: K2 / K3 previous / next
 
 engine.name = "Sculpt"
 
@@ -73,6 +74,8 @@ function init()
   -- réponse de l'engine à un chargement : durée (0 = échec), puis les crêtes
   osc.event = function(path, args)
     if path == "/sculpt/mos" then return mosaic_wrote(args[1], args[2], args[3]) end
+    -- le niveau suivi par un modulateur FOLLOW
+    if path == "/sculpt/fol" then return parameters.mods.level_in(args[1] + 1, args[2]) end
     if path ~= "/sculpt/loaded" then return end
     state.loading = false
     state.seconds = args[1]
@@ -92,6 +95,7 @@ function init()
 
   -- charge le dernier preset s'il existe, puis envoie tout au moteur
   params:default()
+  parameters.mods.start()
 
   -- le retard calé sur le tempo suit un changement d'horloge
   local tempo = params:get("clock_tempo")
@@ -121,5 +125,6 @@ end
 
 function cleanup()
   if redraw_loop then clock.cancel(redraw_loop) end
+  parameters.mods.stop()
   osc.event = nil
 end

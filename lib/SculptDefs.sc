@@ -100,6 +100,23 @@ SculptDefs {
 			Out.ar(out, sig * amp);
 		}).add;
 
+		// Suiveur de niveau, pour le modulateur FOLLOW. Il écoute le bus de
+		// la chaîne à l'endroit où il est placé, ou l'entrée du norns, et
+		// envoie le niveau à Lua 30 fois par seconde.
+		//   ext   : 0 le bus de la chaîne, 1 l'entrée du norns
+		//   gain  : remonte le niveau avant de le borner à 1
+		//   tone  : filtre ce qui est écouté, passe-bas vers le bas, passe-haut
+		//           vers le haut (même loi que TONE dans VAST)
+		//   rise, fall : temps de montée et de descente
+		SynthDef(\sculpt_follow, { |bus, inL, inR, ext = 0, slot = 0, gain = 1, tone = 0,
+			rise = 0.01, fall = 0.2|
+			var sig = (Mix(In.ar(bus, 2)) * (1 - ext)) + ((In.ar(inL) + In.ar(inR)) * ext);
+			var lpf = 18000 * (0.012 ** max(tone.neg, 0));
+			var hpf = 20 * (150 ** max(tone, 0));
+			var env = Amplitude.ar(LPF.ar(HPF.ar(sig * 0.5, hpf), lpf), rise, fall) * gain;
+			SendReply.kr(Impulse.kr(30), '/sculpt/fol', [slot, A2K.kr(env).clip(0, 1)]);
+		}).add;
+
 		// MOSAIC : granulaire sur les 4 dernières secondes du flux.
 		// Le flux est enregistré en boucle dans bufL / bufR (un buffer mono
 		// par côté), et des grains y sont relus.

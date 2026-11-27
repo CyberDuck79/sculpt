@@ -19,6 +19,7 @@ The output goes through a limiter, so a hot sample or a dense effect cannot clip
 | RING | bank of resonant filters | 13 settings done |
 | DEFORM | drive, crush, compression, noise | all 8 settings done |
 | VAST | delay and reverb | all 8 settings done |
+| mod | four modulators: wave, random, follow | done |
 
 Modulation comes from the `matrix` and `toolkit` mods, and presets from the norns PSET menu.
 
@@ -52,7 +53,8 @@ Then restart the norns (**SYSTEM > RESTART**), so that SuperCollider finds the n
 Modulation comes from two norns mods, which must be installed and enabled:
 [matrix](https://github.com/sixolet/matrix), which connects a source to a setting
 with an amount, and [toolkit](https://github.com/sixolet/toolkit), which provides
-the sources: LFOs, sequences, rhythms and macros.
+sources: LFOs, sequences, rhythms and macros. sculpt adds four sources of its own
+(see Modulators); toolkit is optional.
 
 sculpt opens matrix straight on the setting you want to modulate, instead of going
 through **SYSTEM > MODS**:
@@ -68,6 +70,57 @@ modulated: `N/A` shows for a moment.
 
 A modulated setting has a dot after its name. Its bar still shows the value you set,
 and a tick moves over it to show where the modulation takes it right now.
+
+## Modulators
+
+The last stage, **mod**, holds four modulators. Each one is a source in matrix, named
+`mod 1` to `mod 4`, next to those of toolkit. The idea and the three types come
+from the Torso S4.
+
+| Control | Action |
+|---|---|
+| K2 / K3 | previous / next modulator |
+| K1 held + K2 | open the list of matrix, reduced to the settings of sculpt. K2 at the top of the list comes back |
+| K1 held + K3, then E2 or E3 | modulate a setting of the modulator, as anywhere else |
+
+The first setting of a modulator is its **type**, and the pages that follow depend
+on it.
+
+**wave** is an LFO that can be bent out of shape.
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Type** | **Rate**: `free`, from 0.02 to 8 Hz, or a division of the tempo, `straight`, `triplet` or `dotted`, under K1 held + E3 |
+| 2 | **Shape**: sine, triangle or square | **Phase** |
+| 3 | **Skew**: moves the middle of the cycle to one side; at the end of its travel the wave becomes an envelope, a sharp rise and a slow fall or the reverse | **Fold**: amplifies the wave and folds back what goes over, which adds peaks |
+| 4 | **Curve**: widens or pinches the peaks | **Offset**: moves the wave up or down |
+
+**random** is a sequence of random steps.
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Type** | **Rate** of the steps, with the same modes |
+| 2 | **Length**: the number of steps, from 1 to 16 | **Variation**: the chance that a step is drawn again when its turn comes. At 0% the sequence repeats as it is |
+| 3 | **Smooth**: glides from one step to the next | **Phase** |
+| 4 | **Offset** | |
+
+**follow** follows the level of a sound.
+
+| Page | E2 | E3 |
+|---|---|---|
+| 1 | **Type** | **Input**: `source` (the sample, before the effects), `output` (after the effects) or `input` (the audio input of the norns) |
+| 2 | **Gain**: up to +36 dB, so that a quiet sound can use the whole range | **Tone**: filters what is listened to, low-pass going down, high-pass going up |
+| 3 | **Rise**: how fast it goes up | **Fall**: how fast it comes down |
+| 4 | **Hold**: reads the level only at regular intervals, `off` by default, with the modes of Rate | **Delay**: up to 2 seconds |
+| 5 | **Offset** | |
+
+On the screen, a wave shows one cycle and the point that travels along it, a random
+shows its steps, and a follow shows the level of the last three seconds. The four
+columns on the right are the outputs of the four modulators.
+
+The values are computed 30 times a second, and the engine smooths the settings they
+move. This suits slow and medium movements; a fast LFO turns into a staircase, which
+is why the free rate stops at 8 Hz.
 
 ## Source
 

@@ -5,8 +5,11 @@
 -- possible : matrix ne module pas les listes.
 
 local scales = include("lib/scales")
+local mods = include("lib/mods")
 
 local parameters = {}
+
+parameters.mods = mods
 
 -- ce que le script partage avec nous (voir sculpt.lua)
 local state
@@ -34,6 +37,10 @@ function parameters.add(s)
   parameters.add_ring()
   parameters.add_deform()
   parameters.add_vast()
+  mods.add_params(parameters.deltas)
+  -- les réglages de sculpt dans la liste de norns : du premier au dernier
+  parameters.first = params.lookup["sculpt_sep"]
+  parameters.last = params.count
 end
 
 -- durée lisible : millisecondes, puis secondes

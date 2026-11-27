@@ -23,7 +23,8 @@ local mod_armed = false
 -- un mot affiché un instant à la place du label de K3
 local note, note_until = nil, 0
 
-local draw_source, draw_mosaic, draw_ring, draw_deform, draw_vast
+local draw_source, draw_mosaic, draw_ring, draw_deform, draw_vast, draw_mod
+local mods
 
 -- Les étages, dans l'ordre du signal.
 -- pages : deux réglages par page (E2, E3). Un réglage est un identifiant de
@@ -161,6 +162,31 @@ local STAGES = {
     },
     draw = function() draw_vast() end,
   },
+  {
+    -- Les quatre modulateurs. Les pages sont celles de l'emplacement
+    -- affiché, et dépendent de son type.
+    name = function() return "mod " .. mods.current end,
+    short = "MDS",
+    pages = function() return mods.pages(mods.current) end,
+    keys = {
+      {
+        label = function() return "PRV", mods.current > 1 end,
+        press = function() mods.current = math.max(1, mods.current - 1) end,
+      },
+      {
+        label = function() return "NXT", mods.current < mods.N end,
+        press = function() mods.current = math.min(mods.N, mods.current + 1) end,
+      },
+    },
+    -- K1 maintenu + K2 : toutes les modulations, dans la liste de matrix
+    shift_keys = {
+      {
+        label = function() return "MTX", true end,
+        press = function() modlink.open_list(parameters.first, parameters.last) end,
+      },
+    },
+    draw = function() draw_mod() end,
+  },
 }
 
 local stage = 1
@@ -168,8 +194,23 @@ local stage = 1
 local page_of = {}
 for i = 1, #STAGES do page_of[i] = 1 end
 
+-- les pages d'un étage : fixes, ou calculées (les modulateurs)
+local function pages_of(st)
+  if type(st.pages) == "function" then return st.pages() end
+  return st.pages
+end
+
+-- la page courante, ramenée dans les bornes : un modulateur qui change de
+-- type n'a plus le même nombre de pages
+local function page_index(st)
+  local n = #pages_of(st)
+  if page_of[stage] > n then page_of[stage] = n end
+  return page_of[stage]
+end
+
 function ui.init(s, p)
   state, parameters = s, p
+  mods = p.mods
 end
 
 -- un réglage de page : son identifiant et celui de son mode (ou nil)
@@ -185,11 +226,11 @@ function ui.enc(n, d)
     if shift then
       stage = util.clamp(stage + d, 1, #STAGES)
     else
-      page_of[stage] = util.clamp(page_of[stage] + d, 1, #st.pages)
+      page_of[stage] = util.clamp(page_of[stage] + d, 1, #pages_of(st))
     end
     return
   end
-  local id, mode = slot(st.pages[page_of[stage]][n - 1])
+  local id, mode = slot(pages_of(st)[page_index(st)][n - 1])
   if mod_armed then
     -- le réglage de cet encodeur est celui qu'on veut moduler
     mod_armed = false
@@ -280,11 +321,13 @@ local function draw_top()
   else
     screen.level(15)
     screen.move(0, 7)
-    screen.text(st.name)
-    if #st.pages > 1 then
-      local x = screen.text_extents(st.name) + 4
-      for i = 1, #st.pages do
-        screen.level(i == page_of[stage] and 15 or 2)
+    local name = type(st.name) == "function" and st.name() or st.name
+    local pages = pages_of(st)
+    screen.text(name)
+    if #pages > 1 then
+      local x = screen.text_extents(name) + 4
+      for i = 1, #pages do
+        screen.level(i == page_index(st) and 15 or 2)
         screen.rect(x + (i - 1) * 4, 4, 2, 2)
         screen.fill()
       end
@@ -558,6 +601,85 @@ draw_vast = function()
     screen.rect(56, VIZ_MID - 5, 16, 9)
     screen.fill()
     centered("off", 5)
+  end
+end
+
+-- Les modulateurs. À gauche, ce que fait l'emplacement affiché : un cycle
+-- de l'onde et le point qui le parcourt, les paliers de la suite, ou le
+-- niveau suivi qui défile. À droite, la sortie des quatre emplacements.
+local MOD_W = 100
+
+draw_mod = function()
+  local s = mods.current
+  local st, t = mods.slot(s), mods.type(s)
+  local span = VIZ_HALF - 1
+  local function y_of(v) return VIZ_MID - util.round(v * span) end
+
+  -- la ligne du zéro
+  screen.level(2)
+  screen.rect(0, VIZ_MID, MOD_W, 1)
+  screen.fill()
+
+  if t == mods.WAVE then
+    -- un cycle entier, PHASE comprise ; les sauts d'un carré sont reliés
+    local prev
+    screen.level(8)
+    for x = 0, MOD_W - 1 do
+      local y = y_of(mods.wave_at(s, x / MOD_W))
+      if prev and math.abs(y - prev) > 1 then
+        screen.rect(x, math.min(y, prev), 1, math.abs(y - prev) + 1)
+      else
+        screen.rect(x, y, 1, 1)
+      end
+      screen.fill()
+      prev = y
+    end
+    local x = util.clamp(math.floor(st.raw * MOD_W), 0, MOD_W - 1)
+    screen.level(15)
+    screen.rect(x - 1, y_of(st.out) - 1, 3, 3)
+    screen.fill()
+  elseif t == mods.RANDOM then
+    local len = params:get(mods.id(s, "length"))
+    local off = params:get(mods.id(s, "offset"))
+    local w = MOD_W / len
+    for k = 1, len do
+      local x = math.floor((k - 1) * w)
+      screen.level(k == st.step and 12 or 4)
+      screen.rect(x, y_of(util.clamp(st.seq[k] + off, -1, 1)), math.max(1, math.floor(w) - 1), 1)
+      screen.fill()
+    end
+    -- la sortie, lissée, à sa place dans le palier courant
+    local x = math.floor((st.step - 1 + st.raw) * w)
+    screen.level(15)
+    screen.rect(util.clamp(x, 0, MOD_W - 1) - 1, y_of(st.out) - 1, 3, 3)
+    screen.fill()
+  elseif t == mods.FOLLOW then
+    -- le niveau des trois dernières secondes, le plus récent à droite
+    for x = 0, MOD_W - 1 do
+      local v = st.hist[((st.hi - (MOD_W - 1 - x) - 1) % mods.HISTORY) + 1] or 0
+      local y = y_of(v)
+      screen.level(x > MOD_W - 3 and 15 or 6)
+      screen.rect(x, math.min(y, VIZ_MID), 1, math.abs(y - VIZ_MID) + 1)
+      screen.fill()
+    end
+  else
+    centered("off", 5)
+  end
+
+  -- les quatre sorties : une colonne chacune, celle affichée en clair
+  for k = 1, mods.N do
+    local x = 106 + (k - 1) * 6
+    local on = mods.type(k) ~= mods.OFF
+    screen.level(k == s and 6 or 2)
+    screen.rect(x, VIZ_TOP, 4, 1)
+    screen.rect(x, VIZ_TOP + 2 * VIZ_HALF, 4, 1)
+    screen.fill()
+    if on then
+      local y = y_of(mods.slot(k).out)
+      screen.level(k == s and 15 or 6)
+      screen.rect(x, math.min(y, VIZ_MID), 4, math.abs(y - VIZ_MID) + 1)
+      screen.fill()
+    end
   end
 end
 
@@ -916,7 +1038,7 @@ function ui.redraw()
   local st = STAGES[stage]
   if st.draw then st.draw() end
 
-  local page = st.pages[page_of[stage]]
+  local page = pages_of(st)[page_index(st)]
   draw_param(page[1], 0)
   draw_param(page[2], 68)
 

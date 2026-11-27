@@ -23,6 +23,8 @@ Engine_Sculpt : CroneEngine {
 	var grpMos, grpRing, ringCtl, ringShape, ringSynth, ringArgs, ringFreqs, ringMute, ringWet = 0.5, ringSend = 0;
 	var grpDef, defSynth, defArgs, defWet = 0.5;
 	var grpVast, vastSynth, vastArgs;
+	// les suiveurs de niveau des modulateurs FOLLOW, un par emplacement
+	var grpTapSrc, grpTapOut, followers, folArgs, folFunc;
 	var mosaic, mosBufs, mosPat, mosSnap, envBufs, mosFunc, mosBypassed = true, mosLocked = false;
 	var buf, pos = 0, posFunc, lua;
 	// numéro du dernier chargement demandé : un fichier lent qui arrive
@@ -62,6 +64,11 @@ Engine_Sculpt : CroneEngine {
 		grpSrc = Group.new(context.xg, \addToHead);
 		grpFx = Group.after(grpSrc);
 		grpOut = Group.after(grpFx);
+		// deux points d'écoute pour les suiveurs : après la source, après la chaîne
+		grpTapSrc = Group.after(grpSrc);
+		grpTapOut = Group.after(grpFx);
+		followers = nil ! 4;
+		folArgs = { IdentityDictionary[\gain -> 1, \tone -> 0, \rise -> 0.01, \fall -> 0.2] } ! 4;
 		// un groupe par étage : l'ordre de la chaîne tient même quand un
 		// effet est défait et refait
 		grpMos = Group.tail(grpFx);
@@ -112,6 +119,28 @@ Engine_Sculpt : CroneEngine {
 			};
 		});
 		this.addCommand(\level, "f", { |msg| player.set(\level, msg[1]) });
+
+		// Suiveurs de niveau. fol_set : emplacement (0..3), marche, entrée
+		// (0 après la source, 1 après la chaîne, 2 entrée du norns).
+		folFunc = OSCFunc({ |msg| lua.sendMsg("/sculpt/fol", msg[3], msg[4]) }, '/sculpt/fol');
+		this.addCommand(\fol_set, "iii", { |msg|
+			var slot = msg[1].clip(0, 3), on = msg[2] > 0, input = msg[3];
+			followers[slot] !? { |f| f.free };
+			followers[slot] = nil;
+			if(on) {
+				followers[slot] = Synth(\sculpt_follow, [\bus, srcBus,
+					\inL, context.in_b[0].index, \inR, context.in_b[1].index,
+					\ext, (input == 2).asInteger, \slot, slot] ++ folArgs[slot].getPairs,
+					if(input == 1) { grpTapOut } { grpTapSrc });
+			};
+		});
+		[\gain, \tone, \rise, \fall].do { |key|
+			this.addCommand(("fol_" ++ key).asSymbol, "if", { |msg|
+				var slot = msg[1].clip(0, 3);
+				folArgs[slot][key] = msg[2];
+				followers[slot] !? { |f| f.set(key, msg[2]) };
+			});
+		};
 		// le reste du lecteur : une commande par argument du synth
 		[\rate, \dir, \start, \len, \xfade, \glide].do { |key|
 			this.addCommand(("src_" ++ key).asSymbol, "f", { |msg| player.set(key, msg[1]) });
@@ -352,6 +381,9 @@ Engine_Sculpt : CroneEngine {
 	free {
 		posFunc.free;
 		mosFunc.free;
+		folFunc.free;
+		followers.do { |f| f !? { f.free } };
+		[grpTapSrc, grpTapOut].do { |g| g !? { g.free } };
 		[player, mosaic, ringShape, ringSynth, defSynth, vastSynth, outSynth,
 			grpSrc, grpMos, grpRing, grpDef, grpVast, grpFx, grpOut].do { |x| x !? { x.free } };
 		ringCtl.free;
